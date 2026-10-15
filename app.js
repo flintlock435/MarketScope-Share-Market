@@ -1,761 +1,1057 @@
 
 "use strict";
 
-/* =========================================
-   MarketScope - Share Market Forecasting
-   Backend: Render + FastAPI + yfinance
-   ========================================= */
+/* ==========================================
+   MarketScope — dashboard controller
+   Uses the Render FastAPI backend
+   ========================================== */
 
 const API_BASE = "https://marketscope-api-6svt.onrender.com";
 
-const PERIODS = {
-  "1mo": "1 Month",
-  "3mo": "3 Months",
-  "6mo": "6 Months",
-  "1y": "1 Year",
-  "2y": "2 Years",
-  "5y": "5 Years",
-  "10y": "10 Years",
-  "15y": "15 Years"
+const STOCKS = [
+  { name: "Reliance Industries", symbol: "RELIANCE.NS" },
+  { name: "Tata Consultancy Services", symbol: "TCS.NS" },
+  { name: "HDFC Bank", symbol: "HDFCBANK.NS" },
+  { name: "ICICI Bank", symbol: "ICICIBANK.NS" },
+  { name: "Infosys", symbol: "INFY.NS" },
+  { name: "ITC", symbol: "ITC.NS" },
+  { name: "State Bank of India", symbol: "SBIN.NS" },
+  { name: "Tata Motors", symbol: "TATAMOTORS.NS" },
+  { name: "Bharti Airtel", symbol: "BHARTIARTL.NS" },
+  { name: "Larsen & Toubro", symbol: "LT.NS" },
+  { name: "Wipro", symbol: "WIPRO.NS" },
+  { name: "Axis Bank", symbol: "AXISBANK.NS" },
+  { name: "Kotak Mahindra Bank", symbol: "KOTAKBANK.NS" },
+  { name: "Hindustan Unilever", symbol: "HINDUNILVR.NS" },
+  { name: "Maruti Suzuki", symbol: "MARUTI.NS" },
+  { name: "Adani Ports", symbol: "ADANIPORTS.NS" },
+  { name: "Tata Steel", symbol: "TATASTEEL.NS" },
+  { name: "Asian Paints", symbol: "ASIANPAINT.NS" },
+  { name: "Sun Pharmaceutical", symbol: "SUNPHARMA.NS" },
+  { name: "Nifty 50", symbol: "^NSEI" },
+  { name: "BSE Sensex", symbol: "^BSESN" }
+];
+
+const $ = (selector) => document.querySelector(selector);
+
+const state = {
+  symbol: "RELIANCE.NS",
+  company: "Reliance Industries",
+  period: "1y",
+  chartType: "candlestick",
+  rows: [],
+  requestId: 0,
+  searchIndex: -1
 };
 
-const DEFAULT_SYMBOL = "RELIANCE.NS";
+const money = (value) =>
+  Number.isFinite(Number(value))
+    ? "₹" + Number(value).toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      })
+    : "—";
 
-let stockData = [];
-let currentSymbol = DEFAULT_SYMBOL;
-let currentPeriod = "1y";
-let priceChart = null;
+const number = (value, digits = 2) =>
+  Number.isFinite(Number(value))
+    ? Number(value).toLocaleString("en-IN", {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+      })
+    : "—";
 
-/* ---------- DOM helpers ---------- */
+const dateLabel = (value) => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric"
+      });
+};
 
-function findElement(...selectors) {
-  for (const selector of selectors) {
-    const element = document.querySelector(selector);
-    if (element) return element;
-  }
-  return null;
-}
-
-function setText(element, value) {
+function safeText(selector, value) {
+  const element = $(selector);
   if (element) element.textContent = value;
 }
 
-function formatNumber(value, decimals = 2) {
-  const number = Number(value);
+function setNotice(message, type = "info") {
+  const area = $("#notice-area");
+  if (!area) return;
 
-  if (!Number.isFinite(number)) return "—";
+  area.replaceChildren();
 
-  return number.toLocaleString("en-IN", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals
-  });
-}
+  if (!message) return;
 
-function formatPrice(value) {
-  if (!Number.isFinite(Number(value))) return "—";
+  const notice = document.createElement("div");
+  notice.className = `notice notice-${type}`;
+  notice.textContent = message;
+  notice.setAttribute("role", type === "error" ? "alert" : "status");
 
-  return "₹" + Number(value).toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-}
-
-function formatDate(value) {
-  const date = value instanceof Date ? value : new Date(value);
-
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return date.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric"
-  });
-}
-
-function escapeHTML(value) {
-  return String(value).replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  })[character]);
-}
-
-/* ---------- UI element lookup ---------- */
-
-/*
-  These selectors support several common HTML naming conventions.
-  If your HTML uses different IDs, update the selectors below.
-*/
-
-function getSearchInput() {
-  return findElement(
-    "#symbol",
-    "#stockSymbol",
-    "#stockInput",
-    "#searchInput",
-    "#stockSearch",
-    'input[name="symbol"]',
-    'input[name="stock"]'
-  );
-}
-
-function getPeriodInput() {
-  return findElement(
-    "#period",
-    "#timePeriod",
-    "#periodSelect",
-    "#range",
-    'select[name="period"]'
-  );
-}
-
-function getSearchButton() {
-  return findElement(
-    "#searchBtn",
-    "#searchButton",
-    "#analyzeBtn",
-    "#analyzeButton",
-    "#loadStock",
-    "#fetchData"
-  );
-}
-
-function getChartCanvas() {
-  return findElement(
-    "#priceChart",
-    "#stockChart",
-    "#chart",
-    "#stockPriceChart",
-    "canvas"
-  );
-}
-
-function getStatusElement() {
-  return findElement("#status", "#errorMessage", "#message", "#loadingMessage");
-}
-
-/* ---------- Status messages ---------- */
-
-function showStatus(message, type = "info") {
-  let element = getStatusElement();
-
-  if (!element) {
-    element = document.createElement("div");
-    element.id = "marketscope-status";
-    element.setAttribute("role", "status");
-
-    const main = findElement("main", ".container", "#app") || document.body;
-    main.prepend(element);
-  }
-
-  element.textContent = message;
-  element.dataset.type = type;
-
-  element.style.padding = "10px 12px";
-  element.style.margin = "12px 0";
-  element.style.borderRadius = "8px";
-  element.style.fontSize = "14px";
-  element.style.display = message ? "block" : "none";
+  // Inline styling ensures that the notice remains visible even
+  // if styles.css does not define notice classes.
+  notice.style.padding = "12px 14px";
+  notice.style.margin = "12px 0";
+  notice.style.borderRadius = "8px";
+  notice.style.fontSize = "14px";
 
   if (type === "error") {
-    element.style.color = "#b91c1c";
-    element.style.background = "#fee2e2";
+    notice.style.background = "#fee2e2";
+    notice.style.color = "#991b1b";
   } else if (type === "success") {
-    element.style.color = "#166534";
-    element.style.background = "#dcfce7";
+    notice.style.background = "#dcfce7";
+    notice.style.color = "#166534";
   } else {
-    element.style.color = "inherit";
-    element.style.background = "rgba(128,128,128,0.12)";
+    notice.style.background = "#e0f2fe";
+    notice.style.color = "#075985";
   }
+
+  area.appendChild(notice);
 }
 
 function setLoading(loading) {
-  const button = getSearchButton();
+  const button = $("#analyze-button");
+  const refresh = $("#refresh-button");
 
   if (button) {
-    if (!button.dataset.originalText) {
-      button.dataset.originalText = button.textContent.trim() || "Analyze";
-    }
-
     button.disabled = loading;
-    button.textContent = loading
-      ? "Loading..."
-      : button.dataset.originalText;
+    button.textContent = loading ? "Loading…" : "Analyze →";
   }
 
-  const input = getSearchInput();
+  if (refresh) {
+    refresh.disabled = loading;
+    refresh.textContent = loading ? "↻ Loading…" : "↻ Refresh data";
+  }
 
-  if (input) input.disabled = loading;
+  const connection = $(".side-card p");
+  if (connection && loading) {
+    connection.textContent = "Fetching historical prices…";
+  }
 }
 
-/* ---------- API requests ---------- */
+function setConnection(message, isError = false) {
+  safeText("#connection-copy", message);
 
-async function fetchData(symbol, period = currentPeriod) {
-  const cleanSymbol = String(symbol || "").trim().toUpperCase();
+  const dot = $(".side-card i");
+  if (dot) {
+    dot.style.background = isError ? "#dc2626" : "#16a34a";
+  }
+}
 
-  if (!cleanSymbol) {
-    throw new Error("Enter a stock symbol first.");
+function showChartMessage(selector, message) {
+  const element = $(selector);
+  if (!element) return;
+
+  element.replaceChildren();
+  const paragraph = document.createElement("p");
+  paragraph.textContent = message;
+  paragraph.style.padding = "24px";
+  paragraph.style.textAlign = "center";
+  element.appendChild(paragraph);
+}
+
+function clearCharts(message) {
+  showChartMessage("#price-chart-view", message);
+  showChartMessage("#rsi-chart", message);
+  showChartMessage("#macd-chart", message);
+  safeText("#records-label", "No records loaded");
+  safeText("#rsi-value", "RSI —");
+  safeText("#macd-value", "MACD —");
+
+  const download = $("#download-button");
+  if (download) download.disabled = true;
+}
+
+/* ---------- Navigation ---------- */
+
+function setupNavigation() {
+  const links = [...document.querySelectorAll(".sidebar .nav")];
+
+  function activate(link, shouldScroll = true) {
+    links.forEach((item) => {
+      const selected = item === link;
+      item.classList.toggle("active", selected);
+
+      if (selected) {
+        item.setAttribute("aria-current", "location");
+      } else {
+        item.removeAttribute("aria-current");
+      }
+    });
+
+    const target = link ? $(link.getAttribute("href")) : null;
+    const title = link
+      ? link.textContent.replace(/\s+/g, " ").trim()
+      : "Market overview";
+
+    const breadcrumb = $(".topbar > span:first-child");
+    if (breadcrumb) {
+      breadcrumb.replaceChildren();
+
+      const workspace = document.createElement("span");
+      workspace.textContent = "Workspace ";
+
+      const separator = document.createElement("em");
+      separator.textContent = "/";
+
+      const current = document.createElement("b");
+      current.textContent = title;
+
+      breadcrumb.append(workspace, separator, current);
+    }
+
+    if (shouldScroll && target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }
 
-  if (!Object.prototype.hasOwnProperty.call(PERIODS, period)) {
-    throw new Error("Please select a valid historical period.");
+  links.forEach((link) => {
+    link.addEventListener("click", (event) => {
+      const target = $(link.getAttribute("href"));
+      if (!target) return;
+
+      event.preventDefault();
+      history.replaceState(null, "", link.getAttribute("href"));
+      activate(link);
+    });
+  });
+
+  // Also update the active item when scrolling between sections.
+  if ("IntersectionObserver" in window) {
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+
+      if (!visible) return;
+
+      const matchingLink = links.find(
+        (link) => link.getAttribute("href") === `#${visible.target.id}`
+      );
+
+      if (matchingLink) activate(matchingLink, false);
+    }, {
+      rootMargin: "-15% 0px -65% 0px",
+      threshold: [0, 0.15, 0.4]
+    });
+
+    ["overview", "price-chart", "indicators"].forEach((id) => {
+      const section = document.getElementById(id);
+      if (section) observer.observe(section);
+    });
   }
 
+  const initialHash = window.location.hash;
+  const initialLink = links.find(
+    (link) => link.getAttribute("href") === initialHash
+  );
+
+  activate(initialLink || links[0], false);
+}
+
+/* ---------- Stock search ---------- */
+
+function findStock(symbol) {
+  return STOCKS.find(
+    (stock) => stock.symbol.toUpperCase() === symbol.toUpperCase()
+  );
+}
+
+function getCompanyName(symbol) {
+  const stock = findStock(symbol);
+  return stock ? stock.name : symbol;
+}
+
+function updateSelectedCompany(symbol) {
+  const company = getCompanyName(symbol);
+
+  state.symbol = symbol;
+  state.company = company;
+
+  safeText("#selected-company-name", company);
+  safeText("#selected-company-ticker", `${symbol} · ${symbol.startsWith("^") ? "INDEX" : "NSE"}`);
+  safeText("#company-monogram", company
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase()
+  );
+}
+
+function renderSearchResults(query) {
+  const results = $("#search-results");
+  if (!results) return;
+
+  results.replaceChildren();
+  state.searchIndex = -1;
+
+  const normalized = query.trim().toLowerCase();
+
+  if (!normalized) {
+    results.classList.add("hidden");
+    return;
+  }
+
+  const matches = STOCKS.filter((stock) =>
+    stock.name.toLowerCase().includes(normalized) ||
+    stock.symbol.toLowerCase().includes(normalized)
+  ).slice(0, 8);
+
+  if (!matches.length) {
+    const item = document.createElement("div");
+    item.className = "result-item";
+    item.textContent = "No matching listed company. You can enter a ticker directly.";
+    results.appendChild(item);
+    results.classList.remove("hidden");
+    return;
+  }
+
+  matches.forEach((stock) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "result-item";
+    item.setAttribute("role", "option");
+
+    const name = document.createElement("span");
+    name.textContent = stock.name;
+
+    const ticker = document.createElement("small");
+    ticker.textContent = stock.symbol;
+
+    item.append(name, ticker);
+
+    item.addEventListener("click", () => {
+      $("#stock-search").value = stock.name;
+      results.classList.add("hidden");
+      updateSelectedCompany(stock.symbol);
+      loadStock(stock.symbol);
+    });
+
+    results.appendChild(item);
+  });
+
+  results.classList.remove("hidden");
+}
+
+function resolveSearchValue(value) {
+  const query = value.trim();
+  if (!query) return null;
+
+  const exactSymbol = findStock(query.toUpperCase());
+  if (exactSymbol) return exactSymbol.symbol;
+
+  const exactName = STOCKS.find(
+    (stock) => stock.name.toLowerCase() === query.toLowerCase()
+  );
+  if (exactName) return exactName.symbol;
+
+  const match = STOCKS.find(
+    (stock) =>
+      stock.name.toLowerCase().includes(query.toLowerCase()) ||
+      stock.symbol.toLowerCase().includes(query.toLowerCase())
+  );
+
+  // Permit custom Yahoo Finance symbols such as INFY.NS or AAPL.
+  if (/^[A-Z0-9.^=_-]{1,30}$/i.test(query.replace(/\s/g, ""))) {
+    return query.replace(/\s/g, "").toUpperCase();
+  }
+
+  return match ? match.symbol : null;
+}
+
+/* ---------- Backend data ---------- */
+
+async function fetchHistory(symbol, period, signal) {
   const url = new URL(`${API_BASE}/api/history`);
-  url.searchParams.set("symbol", cleanSymbol);
+  url.searchParams.set("symbol", symbol);
   url.searchParams.set("period", period);
 
-  let response;
-
-  try {
-    response = await fetch(url.toString(), {
-      method: "GET",
-      headers: {
-        Accept: "application/json"
-      },
-      cache: "no-store"
-    });
-  } catch (error) {
-    throw new Error(
-      "Could not connect to the stock server. Check your internet connection and try again."
-    );
-  }
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+    signal
+  });
 
   let result;
 
   try {
     result = await response.json();
   } catch {
-    throw new Error("The stock server returned an invalid response.");
+    throw new Error("The stock API returned an unreadable response.");
   }
 
   if (!response.ok) {
-    const detail = typeof result.detail === "string"
-      ? result.detail
-      : `HTTP ${response.status}`;
-
-    throw new Error(detail);
-  }
-
-  if (!result || !Array.isArray(result.data)) {
-    throw new Error("The server response did not contain stock history.");
-  }
-
-  const rows = result.data
-    .map((item) => ({
-      date: new Date(item.date),
-      open: Number(item.open),
-      high: Number(item.high),
-      low: Number(item.low),
-      close: Number(item.close),
-      volume: Number(item.volume ?? 0)
-    }))
-    .filter((item) =>
-      !Number.isNaN(item.date.getTime()) &&
-      Number.isFinite(item.close)
-    )
-    .sort((a, b) => a.date - b.date);
-
-  if (rows.length === 0) {
     throw new Error(
-      `No historical prices were returned for ${cleanSymbol}. Check the symbol and try again.`
+      typeof result.detail === "string"
+        ? result.detail
+        : `Stock API request failed (${response.status}).`
     );
+  }
+
+  if (!Array.isArray(result.data)) {
+    throw new Error("The stock API did not return a historical data array.");
+  }
+
+  const rows = result.data.map((item) => ({
+    date: new Date(item.date),
+    open: Number(item.open),
+    high: Number(item.high),
+    low: Number(item.low),
+    close: Number(item.close),
+    volume: Number(item.volume ?? 0)
+  })).filter((item) =>
+    !Number.isNaN(item.date.getTime()) &&
+    Number.isFinite(item.close)
+  ).sort((a, b) => a.date - b.date);
+
+  if (!rows.length) {
+    throw new Error(`No historical prices found for ${symbol}.`);
   }
 
   return rows;
 }
 
-/* ---------- Stock calculations ---------- */
+/* ---------- Technical indicators ---------- */
 
-function calculateStatistics(data) {
-  if (!data.length) return null;
+function movingAverage(values, period) {
+  return values.map((_, index) => {
+    if (index < period - 1) return null;
 
-  const latest = data[data.length - 1];
-  const first = data[0];
+    const slice = values.slice(index - period + 1, index + 1);
+    return slice.reduce((sum, value) => sum + value, 0) / period;
+  });
+}
 
-  const previous = data.length > 1
-    ? data[data.length - 2]
-    : latest;
+function calculateEMA(values, period) {
+  const output = Array(values.length).fill(null);
+  if (values.length < period) return output;
 
-  const change = latest.close - previous.close;
+  const multiplier = 2 / (period + 1);
+  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
 
-  const changePercent = previous.close !== 0
+  output[period - 1] = ema;
+
+  for (let i = period; i < values.length; i++) {
+    ema = (values[i] - ema) * multiplier + ema;
+    output[i] = ema;
+  }
+
+  return output;
+}
+
+function calculateRSI(values, period = 14) {
+  const output = Array(values.length).fill(null);
+  if (values.length <= period) return output;
+
+  let gains = 0;
+  let losses = 0;
+
+  for (let i = 1; i <= period; i++) {
+    const difference = values[i] - values[i - 1];
+    gains += Math.max(difference, 0);
+    losses += Math.max(-difference, 0);
+  }
+
+  let averageGain = gains / period;
+  let averageLoss = losses / period;
+
+  output[period] = averageLoss === 0
+    ? 100
+    : 100 - 100 / (1 + averageGain / averageLoss);
+
+  for (let i = period + 1; i < values.length; i++) {
+    const difference = values[i] - values[i - 1];
+
+    averageGain =
+      (averageGain * (period - 1) + Math.max(difference, 0)) / period;
+
+    averageLoss =
+      (averageLoss * (period - 1) + Math.max(-difference, 0)) / period;
+
+    output[i] = averageLoss === 0
+      ? 100
+      : 100 - 100 / (1 + averageGain / averageLoss);
+  }
+
+  return output;
+}
+
+function calculateMACD(values) {
+  const fast = calculateEMA(values, 12);
+  const slow = calculateEMA(values, 26);
+
+  const macd = values.map((_, i) =>
+    fast[i] === null || slow[i] === null
+      ? null
+      : fast[i] - slow[i]
+  );
+
+  // Signal EMA starts after 26 observations, once MACD exists.
+  const firstValid = macd.findIndex((value) => value !== null);
+  const signal = Array(values.length).fill(null);
+
+  if (firstValid === -1) {
+    return { macd, signal, histogram: signal.slice() };
+  }
+
+  const validMACD = macd.slice(firstValid);
+  const validSignal = calculateEMA(validMACD, 9);
+
+  validSignal.forEach((value, index) => {
+    signal[firstValid + index] = value;
+  });
+
+  const histogram = macd.map((value, index) =>
+    value === null || signal[index] === null
+      ? null
+      : value - signal[index]
+  );
+
+  return { macd, signal, histogram };
+}
+
+/* ---------- Summary metrics ---------- */
+
+function updateMetrics(rows) {
+  const last = rows[rows.length - 1];
+  const previous = rows.length > 1 ? rows[rows.length - 2] : last;
+
+  const periodHigh = Math.max(...rows.map((row) => row.high));
+  const periodLow = Math.min(...rows.map((row) => row.low));
+
+  const change = last.close - previous.close;
+  const changePercent = previous.close
     ? (change / previous.close) * 100
     : 0;
 
-  const periodChange = latest.close - first.close;
+  safeText("#latest-close", money(last.close));
+  safeText("#session-high", money(last.high));
+  safeText("#session-low", money(last.low));
+  safeText("#period-range", `${money(periodHigh)} / ${money(periodLow)}`);
+  safeText("#latest-date", dateLabel(last.date));
 
-  const periodChangePercent = first.close !== 0
-    ? (periodChange / first.close) * 100
-    : 0;
-
-  const highest = data.reduce(
-    (best, item) => item.high > best.high ? item : best,
-    data[0]
-  );
-
-  const lowest = data.reduce(
-    (best, item) => item.low < best.low ? item : best,
-    data[0]
-  );
-
-  const averageClose =
-    data.reduce((sum, item) => sum + item.close, 0) / data.length;
-
-  return {
-    latest,
-    previous,
-    change,
-    changePercent,
-    periodChange,
-    periodChangePercent,
-    highest,
-    lowest,
-    averageClose
-  };
-}
-
-/* ---------- Summary cards ---------- */
-
-function updateSummary(data) {
-  const stats = calculateStatistics(data);
-  if (!stats) return;
-
-  const changeClass = stats.change >= 0 ? "positive" : "negative";
-
-  const values = {
-    price: formatPrice(stats.latest.close),
-    currentPrice: formatPrice(stats.latest.close),
-    close: formatPrice(stats.latest.close),
-    change: `${stats.change >= 0 ? "+" : ""}${formatPrice(stats.change)}`,
-    changePercent: `${stats.changePercent >= 0 ? "+" : ""}${formatNumber(stats.changePercent)}%`,
-    periodChange: `${stats.periodChange >= 0 ? "+" : ""}${formatPrice(stats.periodChange)}`,
-    periodChangePercent: `${stats.periodChangePercent >= 0 ? "+" : ""}${formatNumber(stats.periodChangePercent)}%`,
-    high: formatPrice(stats.highest.high),
-    low: formatPrice(stats.lowest.low),
-    average: formatPrice(stats.averageClose),
-    volume: formatNumber(stats.latest.volume, 0),
-    date: formatDate(stats.latest.date)
-  };
-
-  const selectors = {
-    price: ["#currentPrice", "#stockPrice", "#latestPrice", "[data-stat='price']"],
-    currentPrice: ["#current-price"],
-    close: ["#closePrice"],
-    change: ["#priceChange", "#change", "[data-stat='change']"],
-    changePercent: ["#changePercent", "#change-percentage", "[data-stat='change-percent']"],
-    periodChange: ["#periodChange"],
-    periodChangePercent: ["#periodChangePercent"],
-    high: ["#dayHigh", "#highPrice", "#highestPrice", "[data-stat='high']"],
-    low: ["#dayLow", "#lowPrice", "#lowestPrice", "[data-stat='low']"],
-    average: ["#averagePrice", "#avgPrice", "[data-stat='average']"],
-    volume: ["#volume", "#tradingVolume", "[data-stat='volume']"],
-    date: ["#lastUpdated", "#latestDate", "[data-stat='date']"]
-  };
-
-  for (const [key, selectorList] of Object.entries(selectors)) {
-    const element = findElement(...selectorList);
-    if (element) {
-      setText(element, values[key]);
-    }
-  }
-
-  const changeElement = findElement(
-    "#priceChange",
-    "#change",
-    "[data-stat='change']"
-  );
+  const changeElement = $("#daily-change");
 
   if (changeElement) {
-    changeElement.classList.remove("positive", "negative");
-    changeElement.classList.add(changeClass);
-    changeElement.style.color = stats.change >= 0 ? "#16a34a" : "#dc2626";
+    changeElement.textContent =
+      `${change >= 0 ? "+" : ""}${money(change)} (${changePercent >= 0 ? "+" : ""}${number(changePercent)}%)`;
+
+    changeElement.style.color = change >= 0 ? "#16a34a" : "#dc2626";
   }
 
-  const percentageElement = findElement(
-    "#changePercent",
-    "#change-percentage",
-    "[data-stat='change-percent']"
-  );
-
-  if (percentageElement) {
-    percentageElement.style.color =
-      stats.changePercent >= 0 ? "#16a34a" : "#dc2626";
-  }
-
-  updateStockHeading(currentSymbol);
-  updateHistoryTable(data);
+  safeText("#records-label", `${rows.length.toLocaleString("en-IN")} daily records`);
+  safeText("#chart-subtitle", `${state.company} · ${state.symbol} · ${state.period}`);
 }
 
-/* ---------- Stock heading ---------- */
+/* ---------- Plotly chart helpers ---------- */
 
-function updateStockHeading(symbol) {
-  const heading = findElement(
-    "#stockName",
-    "#stockTitle",
-    "#selectedStock",
-    "#companyName"
-  );
-
-  if (heading) setText(heading, symbol);
-
-  const subtitle = findElement("#stockSubtitle", "#stockSymbolLabel");
-
-  if (subtitle) {
-    setText(subtitle, `${symbol} · ${PERIODS[currentPeriod] || currentPeriod}`);
-  }
+function plotLayout(title, extra = {}) {
+  return {
+    autosize: true,
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: {
+      family: "DM Sans, sans-serif",
+      color: getComputedStyle(document.body).color || "#334155",
+      size: 12
+    },
+    margin: { l: 55, r: 20, t: 15, b: 40 },
+    showlegend: true,
+    legend: { orientation: "h", y: 1.12, x: 0 },
+    hovermode: "x unified",
+    xaxis: {
+      type: "date",
+      gridcolor: "rgba(128,128,128,0.15)",
+      rangeslider: { visible: false }
+    },
+    yaxis: {
+      gridcolor: "rgba(128,128,128,0.15)",
+      tickprefix: "₹",
+      tickformat: ",.2f"
+    },
+    ...extra
+  };
 }
 
-/* ---------- History table ---------- */
+function renderPriceChart(rows) {
+  const element = $("#price-chart-view");
+  if (!element) return;
 
-function updateHistoryTable(data) {
-  const tbody = findElement(
-    "#historyTable tbody",
-    "#stockTable tbody",
-    "#historicalData tbody",
-    "#historyBody"
+  if (typeof Plotly === "undefined") {
+    showChartMessage("#price-chart-view", "Chart library unavailable. Please reload the page.");
+    return;
+  }
+
+  element.replaceChildren();
+
+  const dates = rows.map((row) => row.date);
+  const closes = rows.map((row) => row.close);
+  const sma20 = movingAverage(closes, 20);
+  const sma50 = movingAverage(closes, 50);
+
+  const traces = [];
+
+  if (state.chartType === "candlestick") {
+    traces.push({
+      type: "candlestick",
+      name: state.symbol,
+      x: dates,
+      open: rows.map((row) => row.open),
+      high: rows.map((row) => row.high),
+      low: rows.map((row) => row.low),
+      close: closes,
+      increasing: { line: { color: "#16a34a" } },
+      decreasing: { line: { color: "#dc2626" } }
+    });
+  } else {
+    traces.push({
+      type: "scatter",
+      mode: "lines",
+      name: "Closing price",
+      x: dates,
+      y: closes,
+      line: { color: "#2563eb", width: 2 }
+    });
+  }
+
+  traces.push({
+    type: "scatter",
+    mode: "lines",
+    name: "SMA 20",
+    x: dates,
+    y: sma20,
+    connectgaps: false,
+    line: { color: "#f59e0b", width: 1.5 }
+  });
+
+  traces.push({
+    type: "scatter",
+    mode: "lines",
+    name: "SMA 50",
+    x: dates,
+    y: sma50,
+    connectgaps: false,
+    line: { color: "#8b5cf6", width: 1.5 }
+  });
+
+  Plotly.newPlot(element, traces, plotLayout("Historical prices"), {
+    responsive: true,
+    displaylogo: false
+  });
+}
+
+function renderRSI(rows) {
+  const values = calculateRSI(rows.map((row) => row.close));
+  const valid = values.filter((value) => value !== null);
+  const latest = valid.length ? valid[valid.length - 1] : null;
+
+  safeText("#rsi-value", latest === null ? "RSI —" : `RSI ${number(latest, 1)}`);
+
+  if (latest === null) {
+    safeText("#rsi-note", "More price history is needed to calculate RSI.");
+    showChartMessage("#rsi-chart", "Insufficient data for RSI.");
+    return;
+  }
+
+  safeText(
+    "#rsi-note",
+    latest >= 70
+      ? "RSI is above 70, indicating strong recent momentum. This alone does not predict a reversal."
+      : latest <= 30
+        ? "RSI is below 30, indicating weak recent momentum. This alone does not predict a rebound."
+        : "RSI is between 30 and 70, within the commonly used neutral range."
   );
 
+  const element = $("#rsi-chart");
+  if (!element || typeof Plotly === "undefined") return;
+
+  Plotly.newPlot(element, [
+    {
+      type: "scatter",
+      mode: "lines",
+      name: "RSI (14)",
+      x: rows.map((row) => row.date),
+      y: values,
+      connectgaps: false,
+      line: { color: "#0ea5e9", width: 2 }
+    },
+    {
+      type: "scatter",
+      mode: "lines",
+      name: "70",
+      x: rows.map((row) => row.date),
+      y: rows.map(() => 70),
+      line: { color: "#dc2626", dash: "dash", width: 1 }
+    },
+    {
+      type: "scatter",
+      mode: "lines",
+      name: "30",
+      x: rows.map((row) => row.date),
+      y: rows.map(() => 30),
+      line: { color: "#16a34a", dash: "dash", width: 1 }
+    }
+  ], plotLayout("RSI", {
+    showlegend: false,
+    margin: { l: 42, r: 12, t: 10, b: 30 },
+    yaxis: {
+      range: [0, 100],
+      dtick: 20,
+      gridcolor: "rgba(128,128,128,0.15)"
+    }
+  }), { responsive: true, displaylogo: false });
+}
+
+function renderMACD(rows) {
+  const closes = rows.map((row) => row.close);
+  const result = calculateMACD(closes);
+
+  const valid = result.macd
+    .map((value, index) => ({ value, index }))
+    .filter((item) => item.value !== null);
+
+  const latest = valid.length
+    ? result.macd[valid[valid.length - 1].index]
+    : null;
+
+  const latestSignal = valid.length
+    ? result.signal[valid[valid.length - 1].index]
+    : null;
+
+  safeText(
+    "#macd-value",
+    latest === null ? "MACD —" : `MACD ${number(latest, 2)}`
+  );
+
+  if (latest === null || latestSignal === null) {
+    safeText("#macd-note", "More historical prices are needed to calculate MACD.");
+    showChartMessage("#macd-chart", "Insufficient data for MACD.");
+    return;
+  }
+
+  safeText(
+    "#macd-note",
+    latest > latestSignal
+      ? "MACD is above its signal line, suggesting positive recent momentum."
+      : latest < latestSignal
+        ? "MACD is below its signal line, suggesting negative recent momentum."
+        : "MACD and its signal line are approximately equal."
+  );
+
+  const element = $("#macd-chart");
+  if (!element || typeof Plotly === "undefined") return;
+
+  const dates = rows.map((row) => row.date);
+
+  Plotly.newPlot(element, [
+    {
+      type: "bar",
+      name: "Histogram",
+      x: dates,
+      y: result.histogram,
+      marker: {
+        color: result.histogram.map((value) =>
+          value === null ? "rgba(0,0,0,0)" :
+          value >= 0 ? "#16a34a" : "#dc2626"
+        )
+      }
+    },
+    {
+      type: "scatter",
+      mode: "lines",
+      name: "MACD",
+      x: dates,
+      y: result.macd,
+      connectgaps: false,
+      line: { color: "#2563eb", width: 1.5 }
+    },
+    {
+      type: "scatter",
+      mode: "lines",
+      name: "Signal",
+      x: dates,
+      y: result.signal,
+      connectgaps: false,
+      line: { color: "#f59e0b", width: 1.5 }
+    }
+  ], plotLayout("MACD", {
+    margin: { l: 50, r: 12, t: 10, b: 30 },
+    yaxis: {
+      gridcolor: "rgba(128,128,128,0.15)",
+      tickformat: ".2f"
+    }
+  }), { responsive: true, displaylogo: false });
+}
+
+/* ---------- Historical table and CSV ---------- */
+
+function renderTable(rows) {
+  const tbody = $("#history-table");
   if (!tbody) return;
 
-  const rows = [...data].reverse();
+  tbody.replaceChildren();
 
-  tbody.innerHTML = rows.map((item) => `
-    <tr>
-      <td>${escapeHTML(formatDate(item.date))}</td>
-      <td>${escapeHTML(formatPrice(item.open))}</td>
-      <td>${escapeHTML(formatPrice(item.high))}</td>
-      <td>${escapeHTML(formatPrice(item.low))}</td>
-      <td>${escapeHTML(formatPrice(item.close))}</td>
-      <td>${escapeHTML(formatNumber(item.volume, 0))}</td>
-    </tr>
-  `).join("");
+  [...rows].reverse().slice(0, 100).forEach((row) => {
+    const tr = document.createElement("tr");
+
+    [
+      dateLabel(row.date),
+      money(row.open),
+      money(row.high),
+      money(row.low),
+      money(row.close),
+      number(row.volume, 0)
+    ].forEach((value) => {
+      const td = document.createElement("td");
+      td.textContent = value;
+      tr.appendChild(td);
+    });
+
+    tbody.appendChild(tr);
+  });
+
+  const download = $("#download-button");
+  if (download) download.disabled = rows.length === 0;
 }
 
-/* ---------- Price chart ---------- */
-
-/*
-  Uses Chart.js if it is already loaded by your HTML.
-  Otherwise, draws a simple price line directly on the canvas.
-*/
-
-function drawFallbackChart(canvas, data) {
-  const context = canvas.getContext("2d");
-  if (!context) return;
-
-  const ratio = window.devicePixelRatio || 1;
-  const width = Math.max(canvas.clientWidth || 600, 300);
-  const height = Math.max(canvas.clientHeight || 320, 220);
-
-  canvas.width = width * ratio;
-  canvas.height = height * ratio;
-  context.setTransform(ratio, 0, 0, ratio, 0, 0);
-
-  context.clearRect(0, 0, width, height);
-
-  const padding = { top: 20, right: 20, bottom: 35, left: 65 };
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
-
-  const prices = data.map((item) => item.close);
-  let min = Math.min(...prices);
-  let max = Math.max(...prices);
-
-  if (min === max) {
-    min -= 1;
-    max += 1;
+function exportCSV() {
+  if (!state.rows.length) {
+    setNotice("Load historical data before exporting.", "error");
+    return;
   }
 
-  const extra = (max - min) * 0.08;
-  min -= extra;
-  max += extra;
+  const headings = ["Date", "Open", "High", "Low", "Close", "Volume"];
 
-  const x = (index) =>
-    padding.left + (index / Math.max(data.length - 1, 1)) * chartWidth;
+  const lines = [
+    headings.join(","),
+    ...state.rows.map((row) => [
+      dateLabel(row.date),
+      row.open,
+      row.high,
+      row.low,
+      row.close,
+      row.volume
+    ].join(","))
+  ];
 
-  const y = (price) =>
-    padding.top + ((max - price) / (max - min)) * chartHeight;
+  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], {
+    type: "text/csv;charset=utf-8;"
+  });
 
-  context.font = "12px sans-serif";
-  context.lineWidth = 1;
-  context.strokeStyle = "rgba(128,128,128,0.2)";
-  context.fillStyle = "rgba(128,128,128,0.9)";
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
 
-  for (let i = 0; i <= 4; i++) {
-    const price = max - ((max - min) * i) / 4;
-    const lineY = y(price);
+  anchor.href = url;
+  anchor.download = `${state.symbol.replace(/[^a-z0-9_-]/gi, "_")}_${state.period}.csv`;
 
-    context.beginPath();
-    context.moveTo(padding.left, lineY);
-    context.lineTo(width - padding.right, lineY);
-    context.stroke();
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
 
-    context.textAlign = "right";
-    context.fillText(formatNumber(price), padding.left - 8, lineY + 4);
+/* ---------- Main loader ---------- */
+
+async function loadStock(symbol = state.symbol) {
+  const requestId = ++state.requestId;
+
+  const period = $("#period-select")?.value || state.period;
+  const chartType = $("#chart-type")?.value || state.chartType;
+
+  state.period = period;
+  state.chartType = chartType;
+
+  updateSelectedCompany(symbol);
+  setLoading(true);
+  setNotice(`Loading ${symbol} historical prices…`, "info");
+  setConnection("Connecting to MarketScope API…");
+
+  const chart = $("#price-chart-view");
+  if (chart) {
+    chart.innerHTML = '<div class="loading">Loading market data…</div>';
   }
 
-  context.beginPath();
+  try {
+    const rows = await fetchHistory(symbol, period);
 
-  prices.forEach((price, index) => {
-    if (index === 0) {
-      context.moveTo(x(index), y(price));
-    } else {
-      context.lineTo(x(index), y(price));
+    // Ignore stale responses if the user requested a different stock.
+    if (requestId !== state.requestId) return;
+
+    state.rows = rows;
+
+    updateMetrics(rows);
+    renderPriceChart(rows);
+    renderRSI(rows);
+    renderMACD(rows);
+    renderTable(rows);
+
+    setNotice(
+      `Loaded ${rows.length.toLocaleString("en-IN")} records for ${symbol}.`,
+      "success"
+    );
+
+    setConnection("Connected · Historical data loaded");
+  } catch (error) {
+    if (requestId !== state.requestId) return;
+
+    console.error("MarketScope API error:", error);
+
+    state.rows = [];
+    clearCharts("Unable to load data. Please retry.");
+    renderTable([]);
+
+    setNotice(
+      error.name === "AbortError"
+        ? "Request cancelled."
+        : `Could not load ${symbol}: ${error.message}`,
+      "error"
+    );
+
+    setConnection("Unable to load data. Check the API and try again.", true);
+  } finally {
+    // Crucial: every current request exits loading state, even on errors.
+    if (requestId === state.requestId) {
+      setLoading(false);
+    }
+  }
+}
+
+/* ---------- Event wiring ---------- */
+
+function setupEvents() {
+  const search = $("#stock-search");
+  const results = $("#search-results");
+
+  if (search) {
+    search.addEventListener("input", () => {
+      renderSearchResults(search.value);
+    });
+
+    search.addEventListener("keydown", (event) => {
+      const items = results
+        ? [...results.querySelectorAll("button.result-item")]
+        : [];
+
+      if (event.key === "Escape") {
+        results?.classList.add("hidden");
+        return;
+      }
+
+      if (event.key === "ArrowDown" && items.length) {
+        event.preventDefault();
+        state.searchIndex = Math.min(state.searchIndex + 1, items.length - 1);
+        items[state.searchIndex].focus();
+        return;
+      }
+
+      if (event.key === "Enter") {
+        event.preventDefault();
+
+        const symbol = resolveSearchValue(search.value);
+
+        if (!symbol) {
+          setNotice("Choose a listed company or enter a valid ticker symbol.", "error");
+          return;
+        }
+
+        results?.classList.add("hidden");
+        loadStock(symbol);
+      }
+    });
+  }
+
+  $("#analyze-button")?.addEventListener("click", () => {
+    const searchValue = search?.value.trim() || state.symbol;
+    const symbol = resolveSearchValue(searchValue);
+
+    if (!symbol) {
+      setNotice("Please enter a valid ticker symbol.", "error");
+      return;
+    }
+
+    if (search) search.value = searchValue;
+    results?.classList.add("hidden");
+
+    loadStock(symbol);
+  });
+
+  $("#refresh-button")?.addEventListener("click", () => {
+    loadStock(state.symbol);
+  });
+
+  $("#period-select")?.addEventListener("change", () => {
+    loadStock(state.symbol);
+  });
+
+  $("#chart-type")?.addEventListener("change", () => {
+    state.chartType = $("#chart-type").value;
+
+    if (state.rows.length) {
+      renderPriceChart(state.rows);
     }
   });
 
-  context.strokeStyle =
-    prices[prices.length - 1] >= prices[0] ? "#16a34a" : "#dc2626";
+  $("#download-button")?.addEventListener("click", exportCSV);
 
-  context.lineWidth = 2;
-  context.stroke();
+  document.addEventListener("click", (event) => {
+    if (
+      !event.target.closest(".company-control") &&
+      results
+    ) {
+      results.classList.add("hidden");
+    }
+  });
 
-  const lastIndex = prices.length - 1;
-
-  context.beginPath();
-  context.arc(x(lastIndex), y(prices[lastIndex]), 4, 0, Math.PI * 2);
-  context.fillStyle =
-    prices[lastIndex] >= prices[0] ? "#16a34a" : "#dc2626";
-  context.fill();
-
-  context.textAlign = "left";
-  context.fillStyle = "rgba(128,128,128,0.9)";
-  context.fillText(formatDate(data[0].date), padding.left, height - 10);
-
-  context.textAlign = "right";
-  context.fillText(
-    formatDate(data[lastIndex].date),
-    width - padding.right,
-    height - 10
-  );
+  window.addEventListener("resize", () => {
+    if (typeof Plotly !== "undefined") {
+      ["#price-chart-view", "#rsi-chart", "#macd-chart"].forEach((selector) => {
+        const element = $(selector);
+        if (element && element.data) {
+          try {
+            Plotly.Plots.resize(element);
+          } catch {
+            // Ignore resize attempts on elements not yet plotted.
+          }
+        }
+      });
+    }
+  });
 }
 
-function renderChart(data) {
-  const canvas = getChartCanvas();
-  if (!canvas || !data.length) return;
+/* ---------- Start dashboard ---------- */
 
-  const labels = data.map((item) =>
-    item.date.toLocaleDateString("en-IN", {
+function initializeDashboard() {
+  safeText(
+    "#today-label",
+    new Date().toLocaleDateString("en-IN", {
       day: "2-digit",
       month: "short",
-      year: "2-digit"
+      year: "numeric"
     })
   );
 
-  const prices = data.map((item) => item.close);
-  const rising = prices[prices.length - 1] >= prices[0];
-  const lineColor = rising ? "#16a34a" : "#dc2626";
-
-  if (typeof window.Chart === "function") {
-    if (priceChart) {
-      priceChart.destroy();
-    }
-
-    const context = canvas.getContext("2d");
-
-    priceChart = new window.Chart(context, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [{
-          label: `${currentSymbol} closing price`,
-          data: prices,
-          borderColor: lineColor,
-          backgroundColor: rising
-            ? "rgba(22,163,74,0.12)"
-            : "rgba(220,38,38,0.12)",
-          borderWidth: 2,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          fill: true,
-          tension: 0.15
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: {
-          intersect: false,
-          mode: "index"
-        },
-        plugins: {
-          legend: {
-            display: true
-          },
-          tooltip: {
-            callbacks: {
-              label: (item) => formatPrice(item.parsed.y)
-            }
-          }
-        },
-        scales: {
-          x: {
-            ticks: {
-              maxTicksLimit: 8
-            }
-          },
-          y: {
-            ticks: {
-              callback: (value) => "₹" + Number(value).toLocaleString("en-IN")
-            }
-          }
-        }
-      }
-    });
-
-    return;
-  }
-
-  drawFallbackChart(canvas, data);
-}
-
-/* ---------- Main stock loader ---------- */
-
-async function loadStock(symbol, period) {
-  const cleanSymbol = String(symbol || "").trim().toUpperCase();
-  const selectedPeriod = period || currentPeriod;
-
-  if (!cleanSymbol) {
-    showStatus("Please enter a stock symbol.", "error");
-    return;
-  }
-
-  setLoading(true);
-  showStatus(`Loading ${cleanSymbol} historical prices...`, "info");
-
-  try {
-    const data = await fetchData(cleanSymbol, selectedPeriod);
-
-    stockData = data;
-    currentSymbol = cleanSymbol;
-    currentPeriod = selectedPeriod;
-
-    updateSummary(data);
-    renderChart(data);
-
-    showStatus(
-      `Loaded ${data.length} historical records for ${cleanSymbol}.`,
-      "success"
-    );
-  } catch (error) {
-    console.error("MarketScope stock loading error:", error);
-
-    showStatus(
-      error.message || "Unable to load stock data. Please try again.",
-      "error"
-    );
-  } finally {
-    setLoading(false);
-  }
-}
-
-/* ---------- Form and control events ---------- */
-
-function handleSearch(event) {
-  if (event) event.preventDefault();
-
-  const input = getSearchInput();
-  const periodInput = getPeriodInput();
-
-  const symbol = input ? input.value : currentSymbol;
-  const period = periodInput ? periodInput.value : currentPeriod;
-
-  loadStock(symbol, period);
-}
-
-function setupPeriodOptions() {
-  const select = getPeriodInput();
-  if (!select) return;
-
-  const supportedValues = new Set(
-    Array.from(select.options).map((option) => option.value)
-  );
-
-  if (supportedValues.size === 0) {
-    for (const [value, label] of Object.entries(PERIODS)) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      select.appendChild(option);
-    }
-  }
-
-  if (select.value && PERIODS[select.value]) {
-    currentPeriod = select.value;
-  } else {
-    currentPeriod = "1y";
-    select.value = currentPeriod;
-  }
-}
-
-function setupEvents() {
-  const input = getSearchInput();
-  const button = getSearchButton();
-  const periodInput = getPeriodInput();
-
-  if (input) {
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        handleSearch(event);
-      }
-    });
-  }
-
-  if (button) {
-    button.addEventListener("click", handleSearch);
-  }
-
-  if (periodInput) {
-    periodInput.addEventListener("change", () => {
-      const symbol = input && input.value.trim()
-        ? input.value
-        : currentSymbol;
-
-      loadStock(symbol, periodInput.value);
-    });
-  }
-
-  const form = findElement("#stockForm", "#searchForm", "form");
-
-  if (form) {
-    form.addEventListener("submit", handleSearch);
-  }
-}
-
-/* ---------- Initialization ---------- */
-
-function initializeMarketScope() {
-  setupPeriodOptions();
+  setupNavigation();
   setupEvents();
 
-  const input = getSearchInput();
-  if (input && !input.value.trim()) {
-    input.value = DEFAULT_SYMBOL;
+  if (typeof Plotly === "undefined") {
+    setNotice(
+      "The chart library did not load. Check your internet connection and reload.",
+      "error"
+    );
   }
 
-  const periodInput = getPeriodInput();
-  if (periodInput) {
-    periodInput.value = currentPeriod;
-  }
+  const search = $("#stock-search");
+  if (search) search.value = "Reliance";
 
-  loadStock(DEFAULT_SYMBOL, currentPeriod);
+  updateSelectedCompany(state.symbol);
+  loadStock(state.symbol);
 }
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initializeMarketScope);
+  document.addEventListener("DOMContentLoaded", initializeDashboard);
 } else {
-  initializeMarketScope();
+  initializeDashboard();
 }
-
-/* ---------- Optional global helpers ---------- */
-
-window.MarketScope = {
-  fetchData,
-  loadStock,
-  calculateStatistics,
-  getStockData: () => [...stockData],
-  getCurrentSymbol: () => currentSymbol,
-  getCurrentPeriod: () => currentPeriod
-};
