@@ -14,9 +14,5 @@ MarketScope is a web-based stock market analysis dashboard focused on Indian equ
 - **Backend:** Python, FastAPI, Pandas, yfinance
 - **Deployment:** GitHub Pages and Render
 
-### 🌐 Live Demo
-- **Frontend:** [MarketScope](YOUR_GITHUB_PAGES_URL)
-- **Backend API:** [MarketScope API](https://marketscope-api-6svt.onrender.com)
-
 ### ⚠️ Disclaimer
 MarketScope is an educational project intended for informational purposes only. Market data availability and accuracy depend on third-party providers. The dashboard does not provide financial advice or guarantee future market performance.
