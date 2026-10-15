@@ -1237,3 +1237,4 @@ if (document.readyState === "loading") {
 } else {
   initializeDashboard();
 }
+
