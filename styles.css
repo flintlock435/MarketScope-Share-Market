@@ -75,6 +75,7 @@ button:disabled {
    SIDEBAR
    ========================================== */
 
+
 .sidebar {
   position: fixed;
   inset: 0 auto 0 0;
@@ -84,9 +85,14 @@ button:disabled {
   width: var(--sidebar-width);
   padding: 28px 18px 18px;
   overflow-y: auto;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
+
+  /* Dark sidebar */
+  background: #0b1220;
+  color: #ffffff;
+  border-right: 1px solid #1e293b;
 }
+
+
 
 .brand {
   display: flex;
@@ -97,16 +103,17 @@ button:disabled {
   font-size: 19px;
   font-weight: 800;
   letter-spacing: -0.7px;
+  color: #ffffff;
 }
 
 .brand > span:last-child > span {
-  color: var(--primary);
+  color: #7c9cff;
 }
 
 .brand small {
   display: block;
   margin-top: 2px;
-  color: var(--muted);
+  color: #94a3b8;
   font-family: "DM Sans", sans-serif;
   font-size: 9px;
   font-weight: 700;
@@ -1290,4 +1297,51 @@ select {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+
+/* Dark sidebar navigation */
+.sidebar .nav {
+  color: #a8b4c8;
+  background: transparent;
+  border-color: transparent;
+}
+
+.sidebar .nav:hover {
+  background: #172033;
+  color: #ffffff;
+}
+
+.sidebar .nav.active {
+  background: #1c2942;
+  border-color: #293750;
+  color: #ffffff;
+}
+
+.sidebar .nav.active::before {
+  background: #7c9cff;
+}
+
+/* Dark market data connection card */
+.sidebar .side-card {
+  background: #111c2e;
+  border: 1px solid #263247;
+  color: #ffffff;
+}
+
+.sidebar .side-card b {
+  color: #e2e8f0;
+}
+
+.sidebar .side-card p {
+  color: #cbd5e1;
+}
+
+.sidebar .side-card small {
+  color: #94a3b8;
+}
+
+/* Workspace heading */
+.sidebar > .eyebrow {
+  color: #94a3b8;
 }
