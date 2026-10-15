@@ -1,10 +1,10 @@
 
 "use strict";
 
-/* ==========================================
-   MarketScope — dashboard controller
-   Uses the Render FastAPI backend
-   ========================================== */
+/* ============================================
+   MarketScope — Complete frontend application
+   Backend: Render FastAPI
+   ============================================ */
 
 const API_BASE = "https://marketscope-api-6svt.onrender.com";
 
@@ -44,21 +44,25 @@ const state = {
   searchIndex: -1
 };
 
-const money = (value) =>
-  Number.isFinite(Number(value))
-    ? "₹" + Number(value).toLocaleString("en-IN", {
+const money = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n)
+    ? "₹" + n.toLocaleString("en-IN", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2
       })
     : "—";
+};
 
-const number = (value, digits = 2) =>
-  Number.isFinite(Number(value))
-    ? Number(value).toLocaleString("en-IN", {
+const number = (value, digits = 2) => {
+  const n = Number(value);
+  return Number.isFinite(n)
+    ? n.toLocaleString("en-IN", {
         minimumFractionDigits: digits,
         maximumFractionDigits: digits
       })
     : "—";
+};
 
 const dateLabel = (value) => {
   const date = new Date(value);
@@ -85,12 +89,8 @@ function setNotice(message, type = "info") {
   if (!message) return;
 
   const notice = document.createElement("div");
-  notice.className = `notice notice-${type}`;
   notice.textContent = message;
   notice.setAttribute("role", type === "error" ? "alert" : "status");
-
-  // Inline styling ensures that the notice remains visible even
-  // if styles.css does not define notice classes.
   notice.style.padding = "12px 14px";
   notice.style.margin = "12px 0";
   notice.style.borderRadius = "8px";
@@ -111,12 +111,12 @@ function setNotice(message, type = "info") {
 }
 
 function setLoading(loading) {
-  const button = $("#analyze-button");
+  const analyze = $("#analyze-button");
   const refresh = $("#refresh-button");
 
-  if (button) {
-    button.disabled = loading;
-    button.textContent = loading ? "Loading…" : "Analyze →";
+  if (analyze) {
+    analyze.disabled = loading;
+    analyze.textContent = loading ? "Loading…" : "Analyze →";
   }
 
   if (refresh) {
@@ -124,133 +124,33 @@ function setLoading(loading) {
     refresh.textContent = loading ? "↻ Loading…" : "↻ Refresh data";
   }
 
-  const connection = $(".side-card p");
-  if (connection && loading) {
-    connection.textContent = "Fetching historical prices…";
+  if (loading) {
+    safeText("#connection-copy", "Fetching historical market data…");
   }
 }
 
-function setConnection(message, isError = false) {
+function setConnection(message, error = false) {
   safeText("#connection-copy", message);
 
   const dot = $(".side-card i");
   if (dot) {
-    dot.style.background = isError ? "#dc2626" : "#16a34a";
+    dot.style.background = error ? "#dc2626" : "#16a34a";
   }
 }
 
-function showChartMessage(selector, message) {
+function showMessage(selector, message) {
   const element = $(selector);
   if (!element) return;
 
   element.replaceChildren();
-  const paragraph = document.createElement("p");
-  paragraph.textContent = message;
-  paragraph.style.padding = "24px";
-  paragraph.style.textAlign = "center";
-  element.appendChild(paragraph);
+
+  const text = document.createElement("div");
+  text.textContent = message;
+  text.style.padding = "24px";
+  text.style.textAlign = "center";
+
+  element.appendChild(text);
 }
-
-function clearCharts(message) {
-  showChartMessage("#price-chart-view", message);
-  showChartMessage("#rsi-chart", message);
-  showChartMessage("#macd-chart", message);
-  safeText("#records-label", "No records loaded");
-  safeText("#rsi-value", "RSI —");
-  safeText("#macd-value", "MACD —");
-
-  const download = $("#download-button");
-  if (download) download.disabled = true;
-}
-
-/* ---------- Navigation ---------- */
-
-function setupNavigation() {
-  const links = [...document.querySelectorAll(".sidebar .nav")];
-
-  function activate(link, shouldScroll = true) {
-    links.forEach((item) => {
-      const selected = item === link;
-      item.classList.toggle("active", selected);
-
-      if (selected) {
-        item.setAttribute("aria-current", "location");
-      } else {
-        item.removeAttribute("aria-current");
-      }
-    });
-
-    const target = link ? $(link.getAttribute("href")) : null;
-    const title = link
-      ? link.textContent.replace(/\s+/g, " ").trim()
-      : "Market overview";
-
-    const breadcrumb = $(".topbar > span:first-child");
-    if (breadcrumb) {
-      breadcrumb.replaceChildren();
-
-      const workspace = document.createElement("span");
-      workspace.textContent = "Workspace ";
-
-      const separator = document.createElement("em");
-      separator.textContent = "/";
-
-      const current = document.createElement("b");
-      current.textContent = title;
-
-      breadcrumb.append(workspace, separator, current);
-    }
-
-    if (shouldScroll && target) {
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }
-
-  links.forEach((link) => {
-    link.addEventListener("click", (event) => {
-      const target = $(link.getAttribute("href"));
-      if (!target) return;
-
-      event.preventDefault();
-      history.replaceState(null, "", link.getAttribute("href"));
-      activate(link);
-    });
-  });
-
-  // Also update the active item when scrolling between sections.
-  if ("IntersectionObserver" in window) {
-    const observer = new IntersectionObserver((entries) => {
-      const visible = entries
-        .filter((entry) => entry.isIntersecting)
-        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-
-      if (!visible) return;
-
-      const matchingLink = links.find(
-        (link) => link.getAttribute("href") === `#${visible.target.id}`
-      );
-
-      if (matchingLink) activate(matchingLink, false);
-    }, {
-      rootMargin: "-15% 0px -65% 0px",
-      threshold: [0, 0.15, 0.4]
-    });
-
-    ["overview", "price-chart", "indicators"].forEach((id) => {
-      const section = document.getElementById(id);
-      if (section) observer.observe(section);
-    });
-  }
-
-  const initialHash = window.location.hash;
-  const initialLink = links.find(
-    (link) => link.getAttribute("href") === initialHash
-  );
-
-  activate(initialLink || links[0], false);
-}
-
-/* ---------- Stock search ---------- */
 
 function findStock(symbol) {
   return STOCKS.find(
@@ -259,26 +159,43 @@ function findStock(symbol) {
 }
 
 function getCompanyName(symbol) {
-  const stock = findStock(symbol);
-  return stock ? stock.name : symbol;
+  return findStock(symbol)?.name || symbol;
 }
+
+/* ============================================
+   COMPANY SELECTION
+   ============================================ */
 
 function updateSelectedCompany(symbol) {
-  const company = getCompanyName(symbol);
-
   state.symbol = symbol;
-  state.company = company;
+  state.company = getCompanyName(symbol);
 
-  safeText("#selected-company-name", company);
-  safeText("#selected-company-ticker", `${symbol} · ${symbol.startsWith("^") ? "INDEX" : "NSE"}`);
-  safeText("#company-monogram", company
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase()
+  safeText("#selected-company-name", state.company);
+  safeText(
+    "#selected-company-ticker",
+    `${symbol} · ${symbol.startsWith("^") ? "INDEX" : "NSE"}`
   );
+
+  safeText(
+    "#company-monogram",
+    state.company
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase()
+  );
+
+  // Update the selected company card if the HTML has it.
+  const selected = $(".selected");
+  if (selected) {
+    selected.style.cursor = "pointer";
+  }
 }
+
+/* ============================================
+   SEARCH DROPDOWN
+   ============================================ */
 
 function renderSearchResults(query) {
   const results = $("#search-results");
@@ -300,10 +217,10 @@ function renderSearchResults(query) {
   ).slice(0, 8);
 
   if (!matches.length) {
-    const item = document.createElement("div");
-    item.className = "result-item";
-    item.textContent = "No matching listed company. You can enter a ticker directly.";
-    results.appendChild(item);
+    const empty = document.createElement("div");
+    empty.className = "result-item";
+    empty.textContent = "No matching companies found";
+    results.appendChild(empty);
     results.classList.remove("hidden");
     return;
   }
@@ -322,17 +239,39 @@ function renderSearchResults(query) {
 
     item.append(name, ticker);
 
+    // Use mousedown so the selection is handled before the input
+    // loses focus. This prevents the dropdown from disappearing
+    // before the click can be processed.
+    item.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      selectStock(stock);
+    });
+
+    // Also support touch and keyboard-generated clicks.
     item.addEventListener("click", () => {
-      $("#stock-search").value = stock.name;
-      results.classList.add("hidden");
-      updateSelectedCompany(stock.symbol);
-      loadStock(stock.symbol);
+      selectStock(stock);
     });
 
     results.appendChild(item);
   });
 
   results.classList.remove("hidden");
+  results.style.display = "block";
+}
+
+function selectStock(stock) {
+  const input = $("#stock-search");
+  const results = $("#search-results");
+
+  if (input) input.value = stock.name;
+
+  if (results) {
+    results.classList.add("hidden");
+    results.style.display = "none";
+  }
+
+  updateSelectedCompany(stock.symbol);
+  loadStock(stock.symbol);
 }
 
 function resolveSearchValue(value) {
@@ -347,30 +286,142 @@ function resolveSearchValue(value) {
   );
   if (exactName) return exactName.symbol;
 
-  const match = STOCKS.find(
+  const normalized = query.replace(/\s+/g, "").toUpperCase();
+
+  // Permit custom symbols such as AAPL, INFY.NS and ^NSEI.
+  if (/^[A-Z0-9.^=_-]{1,30}$/.test(normalized)) {
+    return normalized;
+  }
+
+  const partial = STOCKS.find(
     (stock) =>
       stock.name.toLowerCase().includes(query.toLowerCase()) ||
       stock.symbol.toLowerCase().includes(query.toLowerCase())
   );
 
-  // Permit custom Yahoo Finance symbols such as INFY.NS or AAPL.
-  if (/^[A-Z0-9.^=_-]{1,30}$/i.test(query.replace(/\s/g, ""))) {
-    return query.replace(/\s/g, "").toUpperCase();
-  }
-
-  return match ? match.symbol : null;
+  return partial ? partial.symbol : null;
 }
 
-/* ---------- Backend data ---------- */
+/* ============================================
+   NAVIGATION
+   ============================================ */
+
+function setupNavigation() {
+  const links = [
+    ...document.querySelectorAll(".sidebar .nav")
+  ];
+
+  function activate(link, scroll = true) {
+    links.forEach((item) => {
+      const active = item === link;
+      item.classList.toggle("active", active);
+
+      if (active) {
+        item.setAttribute("aria-current", "location");
+      } else {
+        item.removeAttribute("aria-current");
+      }
+    });
+
+    const target = link
+      ? $(link.getAttribute("href"))
+      : null;
+
+    const title = link
+      ? link.textContent.replace(/\s+/g, " ").trim()
+      : "Market overview";
+
+    const breadcrumb = $(".topbar > span:first-child");
+
+    if (breadcrumb) {
+      breadcrumb.replaceChildren();
+
+      const workspace = document.createElement("span");
+      workspace.textContent = "Workspace ";
+
+      const separator = document.createElement("em");
+      separator.textContent = "/";
+
+      const current = document.createElement("b");
+      current.textContent = title;
+
+      breadcrumb.append(workspace, separator, current);
+    }
+
+    if (scroll && target) {
+      target.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+    }
+  }
+
+  links.forEach((link) => {
+    link.addEventListener("click", (event) => {
+      const target = $(link.getAttribute("href"));
+      if (!target) return;
+
+      event.preventDefault();
+
+      history.replaceState(
+        null,
+        "",
+        link.getAttribute("href")
+      );
+
+      activate(link);
+    });
+  });
+
+  if ("IntersectionObserver" in window) {
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort(
+          (a, b) => b.intersectionRatio - a.intersectionRatio
+        )[0];
+
+      if (!visible) return;
+
+      const link = links.find(
+        (item) =>
+          item.getAttribute("href") === `#${visible.target.id}`
+      );
+
+      if (link) activate(link, false);
+    }, {
+      rootMargin: "-15% 0px -65% 0px",
+      threshold: [0, 0.15, 0.4]
+    });
+
+    ["overview", "price-chart", "indicators"].forEach((id) => {
+      const section = document.getElementById(id);
+      if (section) observer.observe(section);
+    });
+  }
+
+  const initial = links.find(
+    (link) => link.getAttribute("href") === window.location.hash
+  );
+
+  activate(initial || links[0], false);
+}
+
+/* ============================================
+   API REQUEST
+   ============================================ */
 
 async function fetchHistory(symbol, period, signal) {
   const url = new URL(`${API_BASE}/api/history`);
+
   url.searchParams.set("symbol", symbol);
   url.searchParams.set("period", period);
 
   const response = await fetch(url.toString(), {
     method: "GET",
-    headers: { Accept: "application/json" },
+    headers: {
+      Accept: "application/json"
+    },
     cache: "no-store",
     signal
   });
@@ -380,19 +431,19 @@ async function fetchHistory(symbol, period, signal) {
   try {
     result = await response.json();
   } catch {
-    throw new Error("The stock API returned an unreadable response.");
+    throw new Error("The API returned an unreadable response.");
   }
 
   if (!response.ok) {
     throw new Error(
       typeof result.detail === "string"
         ? result.detail
-        : `Stock API request failed (${response.status}).`
+        : `API request failed: HTTP ${response.status}`
     );
   }
 
   if (!Array.isArray(result.data)) {
-    throw new Error("The stock API did not return a historical data array.");
+    throw new Error("The API response has no historical data array.");
   }
 
   const rows = result.data.map((item) => ({
@@ -402,35 +453,42 @@ async function fetchHistory(symbol, period, signal) {
     low: Number(item.low),
     close: Number(item.close),
     volume: Number(item.volume ?? 0)
-  })).filter((item) =>
-    !Number.isNaN(item.date.getTime()) &&
-    Number.isFinite(item.close)
+  })).filter((row) =>
+    !Number.isNaN(row.date.getTime()) &&
+    Number.isFinite(row.close)
   ).sort((a, b) => a.date - b.date);
 
   if (!rows.length) {
-    throw new Error(`No historical prices found for ${symbol}.`);
+    throw new Error(`No historical prices were returned for ${symbol}.`);
   }
 
   return rows;
 }
 
-/* ---------- Technical indicators ---------- */
+/* ============================================
+   TECHNICAL INDICATORS
+   ============================================ */
 
 function movingAverage(values, period) {
   return values.map((_, index) => {
     if (index < period - 1) return null;
 
     const slice = values.slice(index - period + 1, index + 1);
+
     return slice.reduce((sum, value) => sum + value, 0) / period;
   });
 }
 
 function calculateEMA(values, period) {
   const output = Array(values.length).fill(null);
+
   if (values.length < period) return output;
 
   const multiplier = 2 / (period + 1);
-  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+
+  let ema = values
+    .slice(0, period)
+    .reduce((sum, value) => sum + value, 0) / period;
 
   output[period - 1] = ema;
 
@@ -444,6 +502,7 @@ function calculateEMA(values, period) {
 
 function calculateRSI(values, period = 14) {
   const output = Array(values.length).fill(null);
+
   if (values.length <= period) return output;
 
   let gains = 0;
@@ -483,18 +542,21 @@ function calculateMACD(values) {
   const fast = calculateEMA(values, 12);
   const slow = calculateEMA(values, 26);
 
-  const macd = values.map((_, i) =>
-    fast[i] === null || slow[i] === null
+  const macd = values.map((_, index) =>
+    fast[index] === null || slow[index] === null
       ? null
-      : fast[i] - slow[i]
+      : fast[index] - slow[index]
   );
 
-  // Signal EMA starts after 26 observations, once MACD exists.
   const firstValid = macd.findIndex((value) => value !== null);
   const signal = Array(values.length).fill(null);
 
   if (firstValid === -1) {
-    return { macd, signal, histogram: signal.slice() };
+    return {
+      macd,
+      signal,
+      histogram: signal.slice()
+    };
   }
 
   const validMACD = macd.slice(firstValid);
@@ -513,18 +575,22 @@ function calculateMACD(values) {
   return { macd, signal, histogram };
 }
 
-/* ---------- Summary metrics ---------- */
+/* ============================================
+   SUMMARY METRICS
+   ============================================ */
 
 function updateMetrics(rows) {
   const last = rows[rows.length - 1];
-  const previous = rows.length > 1 ? rows[rows.length - 2] : last;
+  const previous = rows.length > 1
+    ? rows[rows.length - 2]
+    : last;
 
   const periodHigh = Math.max(...rows.map((row) => row.high));
   const periodLow = Math.min(...rows.map((row) => row.low));
 
   const change = last.close - previous.close;
   const changePercent = previous.close
-    ? (change / previous.close) * 100
+    ? change / previous.close * 100
     : 0;
 
   safeText("#latest-close", money(last.close));
@@ -537,30 +603,45 @@ function updateMetrics(rows) {
 
   if (changeElement) {
     changeElement.textContent =
-      `${change >= 0 ? "+" : ""}${money(change)} (${changePercent >= 0 ? "+" : ""}${number(changePercent)}%)`;
+      `${change >= 0 ? "+" : ""}${money(change)} ` +
+      `(${changePercent >= 0 ? "+" : ""}${number(changePercent)}%)`;
 
-    changeElement.style.color = change >= 0 ? "#16a34a" : "#dc2626";
+    changeElement.style.color =
+      change >= 0 ? "#16a34a" : "#dc2626";
   }
 
-  safeText("#records-label", `${rows.length.toLocaleString("en-IN")} daily records`);
-  safeText("#chart-subtitle", `${state.company} · ${state.symbol} · ${state.period}`);
+  safeText(
+    "#records-label",
+    `${rows.length.toLocaleString("en-IN")} daily records`
+  );
+
+  safeText(
+    "#chart-subtitle",
+    `${state.company} · ${state.symbol} · ${state.period}`
+  );
 }
 
-/* ---------- Plotly chart helpers ---------- */
+/* ============================================
+   CHART LAYOUT
+   ============================================ */
 
-function plotLayout(title, extra = {}) {
+function plotLayout(extra = {}) {
   return {
     autosize: true,
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "rgba(0,0,0,0)",
     font: {
       family: "DM Sans, sans-serif",
-      color: getComputedStyle(document.body).color || "#334155",
+      color: "#64748b",
       size: 12
     },
     margin: { l: 55, r: 20, t: 15, b: 40 },
     showlegend: true,
-    legend: { orientation: "h", y: 1.12, x: 0 },
+    legend: {
+      orientation: "h",
+      y: 1.12,
+      x: 0
+    },
     hovermode: "x unified",
     xaxis: {
       type: "date",
@@ -576,19 +657,25 @@ function plotLayout(title, extra = {}) {
   };
 }
 
+/* ============================================
+   PRICE CHART
+   ============================================ */
+
 function renderPriceChart(rows) {
   const element = $("#price-chart-view");
   if (!element) return;
 
   if (typeof Plotly === "undefined") {
-    showChartMessage("#price-chart-view", "Chart library unavailable. Please reload the page.");
+    showMessage(
+      "#price-chart-view",
+      "Plotly did not load. Check your internet connection."
+    );
     return;
   }
 
-  element.replaceChildren();
-
   const dates = rows.map((row) => row.date);
   const closes = rows.map((row) => row.close);
+
   const sma20 = movingAverage(closes, 20);
   const sma50 = movingAverage(closes, 50);
 
@@ -603,8 +690,12 @@ function renderPriceChart(rows) {
       high: rows.map((row) => row.high),
       low: rows.map((row) => row.low),
       close: closes,
-      increasing: { line: { color: "#16a34a" } },
-      decreasing: { line: { color: "#dc2626" } }
+      increasing: {
+        line: { color: "#16a34a" }
+      },
+      decreasing: {
+        line: { color: "#dc2626" }
+      }
     });
   } else {
     traces.push({
@@ -613,7 +704,10 @@ function renderPriceChart(rows) {
       name: "Closing price",
       x: dates,
       y: closes,
-      line: { color: "#2563eb", width: 2 }
+      line: {
+        color: "#2563eb",
+        width: 2
+      }
     });
   }
 
@@ -624,7 +718,10 @@ function renderPriceChart(rows) {
     x: dates,
     y: sma20,
     connectgaps: false,
-    line: { color: "#f59e0b", width: 1.5 }
+    line: {
+      color: "#f59e0b",
+      width: 1.5
+    }
   });
 
   traces.push({
@@ -634,25 +731,42 @@ function renderPriceChart(rows) {
     x: dates,
     y: sma50,
     connectgaps: false,
-    line: { color: "#8b5cf6", width: 1.5 }
+    line: {
+      color: "#8b5cf6",
+      width: 1.5
+    }
   });
 
-  Plotly.newPlot(element, traces, plotLayout("Historical prices"), {
-    responsive: true,
-    displaylogo: false
-  });
+  element.replaceChildren();
+
+  Plotly.newPlot(
+    element,
+    traces,
+    plotLayout(),
+    {
+      responsive: true,
+      displaylogo: false
+    }
+  );
 }
+
+/* ============================================
+   RSI CHART
+   ============================================ */
 
 function renderRSI(rows) {
   const values = calculateRSI(rows.map((row) => row.close));
   const valid = values.filter((value) => value !== null);
   const latest = valid.length ? valid[valid.length - 1] : null;
 
-  safeText("#rsi-value", latest === null ? "RSI —" : `RSI ${number(latest, 1)}`);
+  safeText(
+    "#rsi-value",
+    latest === null ? "RSI —" : `RSI ${number(latest, 1)}`
+  );
 
   if (latest === null) {
     safeText("#rsi-note", "More price history is needed to calculate RSI.");
-    showChartMessage("#rsi-chart", "Insufficient data for RSI.");
+    showMessage("#rsi-chart", "Insufficient data for RSI.");
     return;
   }
 
@@ -665,70 +779,81 @@ function renderRSI(rows) {
         : "RSI is between 30 and 70, within the commonly used neutral range."
   );
 
-  const element = $("#rsi-chart");
-  if (!element || typeof Plotly === "undefined") return;
+  const dates = rows.map((row) => row.date);
 
-  Plotly.newPlot(element, [
-    {
-      type: "scatter",
-      mode: "lines",
-      name: "RSI (14)",
-      x: rows.map((row) => row.date),
-      y: values,
-      connectgaps: false,
-      line: { color: "#0ea5e9", width: 2 }
-    },
-    {
-      type: "scatter",
-      mode: "lines",
-      name: "70",
-      x: rows.map((row) => row.date),
-      y: rows.map(() => 70),
-      line: { color: "#dc2626", dash: "dash", width: 1 }
-    },
-    {
-      type: "scatter",
-      mode: "lines",
-      name: "30",
-      x: rows.map((row) => row.date),
-      y: rows.map(() => 30),
-      line: { color: "#16a34a", dash: "dash", width: 1 }
-    }
-  ], plotLayout("RSI", {
-    showlegend: false,
-    margin: { l: 42, r: 12, t: 10, b: 30 },
-    yaxis: {
-      range: [0, 100],
-      dtick: 20,
-      gridcolor: "rgba(128,128,128,0.15)"
-    }
-  }), { responsive: true, displaylogo: false });
+  Plotly.newPlot(
+    $("#rsi-chart"),
+    [
+      {
+        type: "scatter",
+        mode: "lines",
+        name: "RSI 14",
+        x: dates,
+        y: values,
+        connectgaps: false,
+        line: { color: "#0ea5e9", width: 2 }
+      },
+      {
+        type: "scatter",
+        mode: "lines",
+        name: "70",
+        x: dates,
+        y: dates.map(() => 70),
+        line: { color: "#dc2626", dash: "dash", width: 1 }
+      },
+      {
+        type: "scatter",
+        mode: "lines",
+        name: "30",
+        x: dates,
+        y: dates.map(() => 30),
+        line: { color: "#16a34a", dash: "dash", width: 1 }
+      }
+    ],
+    plotLayout({
+      showlegend: false,
+      margin: { l: 42, r: 12, t: 10, b: 30 },
+      yaxis: {
+        range: [0, 100],
+        dtick: 20,
+        gridcolor: "rgba(128,128,128,0.15)"
+      }
+    }),
+    { responsive: true, displaylogo: false }
+  );
 }
 
+/* ============================================
+   MACD CHART
+   ============================================ */
+
 function renderMACD(rows) {
-  const closes = rows.map((row) => row.close);
-  const result = calculateMACD(closes);
+  const result = calculateMACD(rows.map((row) => row.close));
 
   const valid = result.macd
     .map((value, index) => ({ value, index }))
     .filter((item) => item.value !== null);
 
-  const latest = valid.length
-    ? result.macd[valid[valid.length - 1].index]
+  const latestIndex = valid.length
+    ? valid[valid.length - 1].index
+    : -1;
+
+  const latest = latestIndex >= 0
+    ? result.macd[latestIndex]
     : null;
 
-  const latestSignal = valid.length
-    ? result.signal[valid[valid.length - 1].index]
+  const latestSignal = latestIndex >= 0
+    ? result.signal[latestIndex]
     : null;
 
   safeText(
     "#macd-value",
-    latest === null ? "MACD —" : `MACD ${number(latest, 2)}`
+    latest === null ? "MACD —" : `MACD ${number(latest)}`
   );
 
   if (latest === null || latestSignal === null) {
     safeText("#macd-note", "More historical prices are needed to calculate MACD.");
-    showChartMessage("#macd-chart", "Insufficient data for MACD.");
+    showMessage("#macd-chart", "Insufficient data for MACD.");
     return;
   }
 
@@ -741,52 +866,59 @@ function renderMACD(rows) {
         : "MACD and its signal line are approximately equal."
   );
 
-  const element = $("#macd-chart");
-  if (!element || typeof Plotly === "undefined") return;
-
   const dates = rows.map((row) => row.date);
 
-  Plotly.newPlot(element, [
-    {
-      type: "bar",
-      name: "Histogram",
-      x: dates,
-      y: result.histogram,
-      marker: {
-        color: result.histogram.map((value) =>
-          value === null ? "rgba(0,0,0,0)" :
-          value >= 0 ? "#16a34a" : "#dc2626"
-        )
+  Plotly.newPlot(
+    $("#macd-chart"),
+    [
+      {
+        type: "bar",
+        name: "Histogram",
+        x: dates,
+        y: result.histogram,
+        marker: {
+          color: result.histogram.map((value) =>
+            value === null
+              ? "rgba(0,0,0,0)"
+              : value >= 0
+                ? "#16a34a"
+                : "#dc2626"
+          )
+        }
+      },
+      {
+        type: "scatter",
+        mode: "lines",
+        name: "MACD",
+        x: dates,
+        y: result.macd,
+        connectgaps: false,
+        line: { color: "#2563eb", width: 1.5 }
+      },
+      {
+        type: "scatter",
+        mode: "lines",
+        name: "Signal",
+        x: dates,
+        y: result.signal,
+        connectgaps: false,
+        line: { color: "#f59e0b", width: 1.5 }
       }
-    },
-    {
-      type: "scatter",
-      mode: "lines",
-      name: "MACD",
-      x: dates,
-      y: result.macd,
-      connectgaps: false,
-      line: { color: "#2563eb", width: 1.5 }
-    },
-    {
-      type: "scatter",
-      mode: "lines",
-      name: "Signal",
-      x: dates,
-      y: result.signal,
-      connectgaps: false,
-      line: { color: "#f59e0b", width: 1.5 }
-    }
-  ], plotLayout("MACD", {
-    margin: { l: 50, r: 12, t: 10, b: 30 },
-    yaxis: {
-      gridcolor: "rgba(128,128,128,0.15)",
-      tickformat: ".2f"
-    }
-  }), { responsive: true, displaylogo: false });
+    ],
+    plotLayout({
+      margin: { l: 50, r: 12, t: 10, b: 30 },
+      yaxis: {
+        gridcolor: "rgba(128,128,128,0.15)",
+        tickformat: ".2f"
+      }
+    }),
+    { responsive: true, displaylogo: false }
+  );
 }
 
-/* ---------- Historical table and CSV ---------- */
+/* ============================================
+   HISTORY TABLE
+   ============================================ */
 
 function renderTable(rows) {
   const tbody = $("#history-table");
@@ -817,16 +949,18 @@ function renderTable(rows) {
   if (download) download.disabled = rows.length === 0;
 }
 
+/* ============================================
+   CSV EXPORT
+   ============================================ */
+
 function exportCSV() {
   if (!state.rows.length) {
     setNotice("Load historical data before exporting.", "error");
     return;
   }
 
-  const headings = ["Date", "Open", "High", "Low", "Close", "Volume"];
-
   const lines = [
-    headings.join(","),
+    ["Date", "Open", "High", "Low", "Close", "Volume"].join(","),
     ...state.rows.map((row) => [
       dateLabel(row.date),
       row.open,
@@ -837,47 +971,46 @@ function exportCSV() {
     ].join(","))
   ];
 
-  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], {
-    type: "text/csv;charset=utf-8;"
-  });
+  const blob = new Blob(
+    ["\uFEFF" + lines.join("\r\n")],
+    { type: "text/csv;charset=utf-8;" }
+  );
 
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
 
   anchor.href = url;
-  anchor.download = `${state.symbol.replace(/[^a-z0-9_-]/gi, "_")}_${state.period}.csv`;
+  anchor.download =
+    `${state.symbol.replace(/[^a-z0-9_-]/gi, "_")}_${state.period}.csv`;
 
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(url);
+
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/* ---------- Main loader ---------- */
+/* ============================================
+   MAIN DATA LOADER
+   ============================================ */
 
 async function loadStock(symbol = state.symbol) {
   const requestId = ++state.requestId;
 
-  const period = $("#period-select")?.value || state.period;
-  const chartType = $("#chart-type")?.value || state.chartType;
-
-  state.period = period;
-  state.chartType = chartType;
+  state.period = $("#period-select")?.value || state.period;
+  state.chartType = $("#chart-type")?.value || state.chartType;
 
   updateSelectedCompany(symbol);
   setLoading(true);
   setNotice(`Loading ${symbol} historical prices…`, "info");
   setConnection("Connecting to MarketScope API…");
 
-  const chart = $("#price-chart-view");
-  if (chart) {
-    chart.innerHTML = '<div class="loading">Loading market data…</div>';
-  }
+  showMessage("#price-chart-view", "Loading market data…");
 
   try {
-    const rows = await fetchHistory(symbol, period);
+    const rows = await fetchHistory(symbol, state.period);
 
-    // Ignore stale responses if the user requested a different stock.
+    // Ignore older responses if another request has started.
     if (requestId !== state.requestId) return;
 
     state.rows = rows;
@@ -900,26 +1033,54 @@ async function loadStock(symbol = state.symbol) {
     console.error("MarketScope API error:", error);
 
     state.rows = [];
-    clearCharts("Unable to load data. Please retry.");
-    renderTable([]);
+
+    safeText("#latest-close", "—");
+    safeText("#session-high", "—");
+    safeText("#session-low", "—");
+    safeText("#period-range", "—");
+    safeText("#latest-date", "");
+    safeText("#daily-change", "Data unavailable");
+
+    showMessage("#price-chart-view", "Unable to load market data. Please retry.");
+    showMessage("#rsi-chart", "No indicator data available.");
+    showMessage("#macd-chart", "No indicator data available.");
+
+    safeText("#rsi-value", "RSI —");
+    safeText("#macd-value", "MACD —");
+    safeText("#rsi-note", "RSI will appear when market data loads.");
+    safeText("#macd-note", "MACD will appear when market data loads.");
+    safeText("#records-label", "No records loaded");
+
+    const tbody = $("#history-table");
+    if (tbody) {
+      tbody.replaceChildren();
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 6;
+      cell.textContent = "Unable to load historical records.";
+      row.appendChild(cell);
+      tbody.appendChild(row);
+    }
+
+    const download = $("#download-button");
+    if (download) download.disabled = true;
 
     setNotice(
-      error.name === "AbortError"
-        ? "Request cancelled."
-        : `Could not load ${symbol}: ${error.message}`,
+      `Could not load ${symbol}: ${error.message}`,
       "error"
     );
 
-    setConnection("Unable to load data. Check the API and try again.", true);
+    setConnection("Unable to load data. Check the API and retry.", true);
   } finally {
-    // Crucial: every current request exits loading state, even on errors.
     if (requestId === state.requestId) {
       setLoading(false);
     }
   }
 }
 
-/* ---------- Event wiring ---------- */
+/* ============================================
+   EVENT HANDLERS
+   ============================================ */
 
 function setupEvents() {
   const search = $("#stock-search");
@@ -930,6 +1091,12 @@ function setupEvents() {
       renderSearchResults(search.value);
     });
 
+    search.addEventListener("focus", () => {
+      if (search.value.trim()) {
+        renderSearchResults(search.value);
+      }
+    });
+
     search.addEventListener("keydown", (event) => {
       const items = results
         ? [...results.querySelectorAll("button.result-item")]
@@ -937,12 +1104,16 @@ function setupEvents() {
 
       if (event.key === "Escape") {
         results?.classList.add("hidden");
+        if (results) results.style.display = "none";
         return;
       }
 
       if (event.key === "ArrowDown" && items.length) {
         event.preventDefault();
-        state.searchIndex = Math.min(state.searchIndex + 1, items.length - 1);
+        state.searchIndex = Math.min(
+          state.searchIndex + 1,
+          items.length - 1
+        );
         items[state.searchIndex].focus();
         return;
       }
@@ -953,27 +1124,33 @@ function setupEvents() {
         const symbol = resolveSearchValue(search.value);
 
         if (!symbol) {
-          setNotice("Choose a listed company or enter a valid ticker symbol.", "error");
+          setNotice("Enter a valid company name or ticker.", "error");
           return;
         }
 
-        results?.classList.add("hidden");
+        if (results) {
+          results.classList.add("hidden");
+          results.style.display = "none";
+        }
+
         loadStock(symbol);
       }
     });
   }
 
   $("#analyze-button")?.addEventListener("click", () => {
-    const searchValue = search?.value.trim() || state.symbol;
-    const symbol = resolveSearchValue(searchValue);
+    const value = search?.value.trim() || state.symbol;
+    const symbol = resolveSearchValue(value);
 
     if (!symbol) {
-      setNotice("Please enter a valid ticker symbol.", "error");
+      setNotice("Enter a valid company name or ticker.", "error");
       return;
     }
 
-    if (search) search.value = searchValue;
-    results?.classList.add("hidden");
+    if (results) {
+      results.classList.add("hidden");
+      results.style.display = "none";
+    }
 
     loadStock(symbol);
   });
@@ -996,32 +1173,37 @@ function setupEvents() {
 
   $("#download-button")?.addEventListener("click", exportCSV);
 
+  // Close dropdown only when the user clicks outside the search control.
   document.addEventListener("click", (event) => {
     if (
       !event.target.closest(".company-control") &&
       results
     ) {
       results.classList.add("hidden");
+      results.style.display = "none";
     }
   });
 
   window.addEventListener("resize", () => {
-    if (typeof Plotly !== "undefined") {
-      ["#price-chart-view", "#rsi-chart", "#macd-chart"].forEach((selector) => {
-        const element = $(selector);
-        if (element && element.data) {
-          try {
-            Plotly.Plots.resize(element);
-          } catch {
-            // Ignore resize attempts on elements not yet plotted.
-          }
+    if (typeof Plotly === "undefined") return;
+
+    ["#price-chart-view", "#rsi-chart", "#macd-chart"].forEach((selector) => {
+      const element = $(selector);
+
+      if (element && element.data) {
+        try {
+          Plotly.Plots.resize(element);
+        } catch (error) {
+          console.debug("Chart resize skipped:", error);
         }
-      });
-    }
+      }
+    });
   });
 }
 
-/* ---------- Start dashboard ---------- */
+/* ============================================
+   INITIALIZE
+   ============================================ */
 
 function initializeDashboard() {
   safeText(
@@ -1038,13 +1220,13 @@ function initializeDashboard() {
 
   if (typeof Plotly === "undefined") {
     setNotice(
-      "The chart library did not load. Check your internet connection and reload.",
+      "Plotly could not load. Check your internet connection and reload.",
       "error"
     );
   }
 
   const search = $("#stock-search");
-  if (search) search.value = "Reliance";
+  if (search) search.value = "Reliance Industries";
 
   updateSelectedCompany(state.symbol);
   loadStock(state.symbol);
