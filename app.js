@@ -1,24 +1,761 @@
-const STOCKS=[
-["Reliance Industries","RELIANCE.NS","RE"],["Tata Consultancy Services","TCS.NS","TC"],["HDFC Bank","HDFCBANK.NS","HB"],["ICICI Bank","ICICIBANK.NS","IB"],["Infosys","INFY.NS","IN"],["Bharti Airtel","BHARTIARTL.NS","BA"],["ITC","ITC.NS","IT"],["State Bank of India","SBIN.NS","SB"],["Larsen & Toubro","LT.NS","LT"],["Hindustan Unilever","HINDUNILVR.NS","HU"],["Tata Motors","TATAMOTORS.NS","TM"],["Mahindra & Mahindra","M&M.NS","MM"],["Axis Bank","AXISBANK.NS","AB"],["Kotak Mahindra Bank","KOTAKBANK.NS","KB"],["Wipro","WIPRO.NS","WI"],["HCL Technologies","HCLTECH.NS","HT"],["Tata Steel","TATASTEEL.NS","TS"],["Sun Pharmaceutical","SUNPHARMA.NS","SP"],["Maruti Suzuki","MARUTI.NS","MS"],["NTPC","NTPC.NS","NT"],["Power Grid Corporation","POWERGRID.NS","PG"],["Asian Paints","ASIANPAINT.NS","AP"],["Titan Company","TITAN.NS","TI"],["Adani Ports","ADANIPORTS.NS","AD"],["Coal India","COALINDIA.NS","CI"],["Bajaj Finance","BAJFINANCE.NS","BF"],["Bajaj Finserv","BAJAJFINSV.NS","BS"],["Nestle India","NESTLEIND.NS","NI"],["Tata Consumer Products","TATACONSUM.NS","TC"],["Eternal (formerly Zomato)","ETERNAL.NS","ET"],["IndusInd Bank","INDUSINDBK.NS","IB"],["Dr Reddy's Laboratories","DRREDDY.NS","DR"],["Cipla","CIPLA.NS","CI"],["Grasim Industries","GRASIM.NS","GI"],["Tech Mahindra","TECHM.NS","TM"],["Eicher Motors","EICHERMOT.NS","EM"],["Trent","TRENT.NS","TR"],["Bharat Electronics","BEL.NS","BE"],["ONGC","ONGC.NS","ON"],["Indian Oil Corporation","IOC.NS","IO"],["IRCTC","IRCTC.NS","IR"],["DMart","DMART.NS","DM"],["Nifty 50 Index","^NSEI","N50"],["S&P 500","^GSPC","SP5"],["Apple","AAPL","AP"],["Microsoft","MSFT","MS"],["NVIDIA","NVDA","NV"],["Amazon","AMZN","AM"],["Alphabet","GOOGL","GO"],["Tesla","TSLA","TS"]];
-const PERIODS={"1mo":{label:"1 Month",days:31},"3mo":{label:"3 Months",days:92},"6mo":{label:"6 Months",days:184},"1y":{label:"1 Year",years:1},"2y":{label:"2 Years",years:2},"5y":{label:"5 Years",years:5},"10y":{label:"10 Years",years:10},"15y":{label:"15 Years",years:15}};
-const $=id=>document.getElementById(id);let selected=STOCKS[0],rowsNow=[],token=0;
-$("today-label").textContent=new Intl.DateTimeFormat("en-IN",{day:"2-digit",month:"short",year:"numeric"}).format(new Date());
-const safe=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const money=n=>Number.isFinite(n)?"₹"+n.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2}):"—";
-const datefmt=d=>new Intl.DateTimeFormat("en-IN",{day:"2-digit",month:"short",year:"numeric"}).format(d);
-function notice(msg,type="info"){$("notice-area").innerHTML=msg?`<div class="notice ${type}">${msg}</div>`:"";}
-function choose(s){selected=s;$("selected-company-name").textContent=s[0];$("selected-company-ticker").textContent=s[1]+" · "+(s[1].endsWith(".NS")?"NSE":"Market");$("company-monogram").textContent=s[2];$("stock-search").value="";$("search-results").classList.add("hidden");loadData();}
-$("stock-search").addEventListener("input",e=>{const q=e.target.value.trim().toLowerCase(),box=$("search-results");if(!q){box.classList.add("hidden");return}const found=STOCKS.filter(s=>s[0].toLowerCase().includes(q)||s[1].toLowerCase().includes(q)).slice(0,12);box.innerHTML=found.length?found.map(s=>`<button class="result" data-index="${STOCKS.indexOf(s)}"><span><b>${safe(s[0])}</b><small>${safe(s[1])}</small></span><small>↗</small></button>`).join(""):`<div class="result">No matching company</div>`;box.classList.remove("hidden")});
-$("search-results").addEventListener("click",e=>{const b=e.target.closest("[data-index]");if(b)choose(STOCKS[+b.dataset.index])});
-document.addEventListener("click",e=>{if(!e.target.closest(".company-control"))$("search-results").classList.add("hidden")});
-$("analyze-button").addEventListener("click",loadData);$("refresh-button").addEventListener("click",loadData);$("period-select").addEventListener("change",loadData);$("chart-type").addEventListener("change",()=>drawPrice(rowsNow));
-async function fetchData(symbol,period){const range=period==="15y"?"max":period,url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d&events=history`;const res=await fetch(url,{cache:"no-store"});if(!res.ok)throw Error(`Market data service returned HTTP ${res.status}.`);const json=await res.json(),r=json?.chart?.result?.[0];if(!r)throw Error(json?.chart?.error?.description||"No historical data returned for this ticker.");const q=r.indicators?.quote?.[0],adj=r.indicators?.adjclose?.[0]?.adjclose;if(!q)throw Error("Provider returned no daily price records.");let out=(r.timestamp||[]).map((t,i)=>({date:new Date(t*1000),open:q.open?.[i],high:q.high?.[i],low:q.low?.[i],close:adj?.[i]??q.close?.[i],volume:q.volume?.[i]??0})).filter(x=>Number.isFinite(x.close)&&Number.isFinite(x.high)&&Number.isFinite(x.low));if(period==="15y"){const cut=new Date();cut.setFullYear(cut.getFullYear()-15);out=out.filter(x=>x.date>=cut)}return out}
-function indicators(rows){const c=rows.map(r=>r.close);let e12=null,e26=null,sig=null;const gains=c.map((v,i)=>i?Math.max(v-c[i-1],0):0),losses=c.map((v,i)=>i?Math.max(c[i-1]-v,0):0);rows.forEach((r,i)=>{r.sma20=i<19?null:c.slice(i-19,i+1).reduce((a,b)=>a+b,0)/20;r.sma50=i<49?null:c.slice(i-49,i+1).reduce((a,b)=>a+b,0)/50;e12=e12===null?r.close:(2/13)*r.close+(11/13)*e12;e26=e26===null?r.close:(2/27)*r.close+(25/27)*e26;r.macd=e12-e26;sig=sig===null?r.macd:.2*r.macd+.8*sig;r.signal=sig;r.hist=r.macd-sig;if(i<13)r.rsi=null;else{const g=gains.slice(i-13,i+1).reduce((a,b)=>a+b,0)/14,l=losses.slice(i-13,i+1).reduce((a,b)=>a+b,0)/14;r.rsi=l===0?100:100-100/(1+g/l)}});return rows}
-function layout(height,title){return{height,margin:{l:55,r:16,t:8,b:35},paper_bgcolor:"rgba(0,0,0,0)",plot_bgcolor:"rgba(0,0,0,0)",font:{family:"DM Sans,sans-serif",size:10,color:"#8490a3"},xaxis:{gridcolor:"#eef1f6",rangeslider:{visible:false},zeroline:false},yaxis:{gridcolor:"#eef1f6",title:{text:title,font:{size:10}},zeroline:false},legend:{orientation:"h",y:1.13},hovermode:"x unified"}}
-function drawPrice(r){if(!r.length)return;const x=r.map(a=>a.date),t=$("chart-type").value==="line"?[{x,y:r.map(a=>a.close),type:"scatter",mode:"lines",name:"Close",line:{color:"#4169f5",width:2}}]:[{x,open:r.map(a=>a.open),high:r.map(a=>a.high),low:r.map(a=>a.low),close:r.map(a=>a.close),type:"candlestick",name:"Price",increasing:{line:{color:"#16a879"}},decreasing:{line:{color:"#df5368"}}}];t.push({x,y:r.map(a=>a.sma20),type:"scatter",mode:"lines",name:"SMA 20",line:{color:"#efa53d",width:1.3}},{x,y:r.map(a=>a.sma50),type:"scatter",mode:"lines",name:"SMA 50",line:{color:"#1da77a",width:1.3}});Plotly.react("price-chart-view",t,layout(370,"Price (INR)"),{responsive:true,displaylogo:false});$("chart-subtitle").textContent=PERIODS[$("period-select").value].label+" · daily prices with moving averages";$("records-label").textContent=r.length.toLocaleString("en-IN")+" daily records"}
-function drawRSI(r){const a=r.filter(x=>Number.isFinite(x.rsi));if(!a.length){$("rsi-chart").textContent="Not enough history to calculate RSI.";return}const l=layout(195,"RSI");l.yaxis.range=[0,100];l.shapes=[{type:"line",xref:"paper",x0:0,x1:1,y0:70,y1:70,line:{color:"#dc4c64",dash:"dash"}},{type:"line",xref:"paper",x0:0,x1:1,y0:30,y1:30,line:{color:"#15966a",dash:"dash"}}];Plotly.react("rsi-chart",[{x:a.map(x=>x.date),y:a.map(x=>x.rsi),type:"scatter",mode:"lines",name:"RSI",line:{color:"#526df5",width:1.7}}],l,{responsive:true,displaylogo:false});const v=a.at(-1).rsi;$("rsi-value").textContent="RSI "+v.toFixed(1);$("rsi-note").textContent=v>=70?"RSI is above 70, a commonly watched overbought zone. Not a standalone sell signal.":v<=30?"RSI is below 30, a commonly watched oversold zone. Not a standalone buy signal.":"RSI is between 30 and 70. Indicators are context, not predictions."}
-function drawMACD(r){const a=r.filter(x=>Number.isFinite(x.macd));if(!a.length){$("macd-chart").textContent="Not enough history to calculate MACD.";return}Plotly.react("macd-chart",[{x:a.map(x=>x.date),y:a.map(x=>x.hist),type:"bar",name:"Histogram",marker:{color:a.map(x=>x.hist>=0?"#32b88b":"#e68b9b")}},{x:a.map(x=>x.date),y:a.map(x=>x.macd),type:"scatter",mode:"lines",name:"MACD",line:{color:"#4169f5"}},{x:a.map(x=>x.date),y:a.map(x=>x.signal),type:"scatter",mode:"lines",name:"Signal",line:{color:"#efa53d"}}],layout(195,"MACD"),{responsive:true,displaylogo:false});const v=a.at(-1);$("macd-value").textContent=v.macd>=v.signal?"MACD above signal":"MACD below signal";$("macd-note").textContent=v.macd>=v.signal?"MACD is above its signal line in the latest record. Not a guarantee.":"MACD is below its signal line in the latest record. Not a guarantee."}
-function render(r){const a=r.at(-1),p=r.at(-2)||a,change=a.close-p.close,pct=p.close?change/p.close*100:0;$("latest-close").textContent=money(a.close);$("daily-change").textContent=`${change>=0?"+":""}${money(change)} (${pct>=0?"+":""}${pct.toFixed(2)}%)`;$("daily-change").className="change "+(change>0?"positive":change<0?"negative":"");$("latest-date").textContent=datefmt(a.date);$("session-high").textContent=money(a.high);$("session-low").textContent=money(a.low);$("period-range").textContent=money(Math.max(...r.map(x=>x.high)))+" / "+money(Math.min(...r.map(x=>x.low)));drawPrice(r);drawRSI(r);drawMACD(r);$("history-table").innerHTML=r.slice(-12).reverse().map(x=>`<tr><td>${datefmt(x.date)}</td><td>${money(x.open)}</td><td>${money(x.high)}</td><td>${money(x.low)}</td><td><b>${money(x.close)}</b></td><td>${x.volume.toLocaleString("en-IN")}</td></tr>`).join("")}
-async function loadData(){const my=++token,period=$("period-select").value;$("analyze-button").disabled=true;$("refresh-button").disabled=true;$("analyze-button").textContent="Loading…";$("connection-copy").textContent="Fetching "+selected[1]+"…";$("price-chart-view").innerHTML='<div class="loading">Loading market data…</div>';notice("");try{let r=await fetchData(selected[1],period);if(my!==token)return;if(!r.length)throw Error("No usable daily price records were found.");const years=(r.at(-1).date-r[0].date)/(365.25*86400000),required=PERIODS[period].years;if(required&&years<required-.08)notice(`<b>Limited history:</b> ${safe(selected[0])} has about ${years.toFixed(1)} years of returned data, less than the selected ${required}-year period. The company may be newly listed or provider history may be incomplete.`,"warning");else notice("");indicators(r);rowsNow=r;render(r);$("download-button").disabled=false;$("connection-copy").textContent=`Loaded ${r.length} records successfully.`}catch(e){if(my!==token)return;$("price-chart-view").innerHTML=`<div class="load-error"><b>Market data could not be loaded.</b><br>${safe(e.message)}<br><br>This static site depends on a public endpoint that may block browser cross-origin requests or rate-limit traffic. No fabricated prices have been substituted.</div>`;notice("<b>Data unavailable.</b> "+safe(e.message),"error");$("connection-copy").textContent="Market data request failed.";$("history-table").innerHTML='<tr><td colspan="6">No records available. Try refreshing later.</td></tr>';$("rsi-chart").textContent="RSI unavailable until prices load.";$("macd-chart").textContent="MACD unavailable until prices load.";$("download-button").disabled=true}finally{if(my===token){$("analyze-button").disabled=false;$("refresh-button").disabled=false;$("analyze-button").textContent="Analyze →"}}}
-$("download-button").addEventListener("click",()=>{if(!rowsNow.length)return;const h=["Date","Open","High","Low","Close","Volume","SMA20","SMA50","RSI","MACD","Signal"],lines=[h.join(","),...rowsNow.map(r=>[r.date.toISOString().slice(0,10),r.open,r.high,r.low,r.close,r.volume,r.sma20??"",r.sma50??"",r.rsi??"",r.macd??"",r.signal??""].join(","))],url=URL.createObjectURL(new Blob([lines.join("\n")],{type:"text/csv"})),a=document.createElement("a");a.href=url;a.download=selected[1].replace(/[^a-z0-9]/gi,"_")+"_history.csv";a.click();URL.revokeObjectURL(url)});
-loadData();
+
+"use strict";
+
+/* =========================================
+   MarketScope - Share Market Forecasting
+   Backend: Render + FastAPI + yfinance
+   ========================================= */
+
+const API_BASE = "https://marketscope-api-6svt.onrender.com";
+
+const PERIODS = {
+  "1mo": "1 Month",
+  "3mo": "3 Months",
+  "6mo": "6 Months",
+  "1y": "1 Year",
+  "2y": "2 Years",
+  "5y": "5 Years",
+  "10y": "10 Years",
+  "15y": "15 Years"
+};
+
+const DEFAULT_SYMBOL = "RELIANCE.NS";
+
+let stockData = [];
+let currentSymbol = DEFAULT_SYMBOL;
+let currentPeriod = "1y";
+let priceChart = null;
+
+/* ---------- DOM helpers ---------- */
+
+function findElement(...selectors) {
+  for (const selector of selectors) {
+    const element = document.querySelector(selector);
+    if (element) return element;
+  }
+  return null;
+}
+
+function setText(element, value) {
+  if (element) element.textContent = value;
+}
+
+function formatNumber(value, decimals = 2) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) return "—";
+
+  return number.toLocaleString("en-IN", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  });
+}
+
+function formatPrice(value) {
+  if (!Number.isFinite(Number(value))) return "—";
+
+  return "₹" + Number(value).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+function formatDate(value) {
+  const date = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+function escapeHTML(value) {
+  return String(value).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[character]);
+}
+
+/* ---------- UI element lookup ---------- */
+
+/*
+  These selectors support several common HTML naming conventions.
+  If your HTML uses different IDs, update the selectors below.
+*/
+
+function getSearchInput() {
+  return findElement(
+    "#symbol",
+    "#stockSymbol",
+    "#stockInput",
+    "#searchInput",
+    "#stockSearch",
+    'input[name="symbol"]',
+    'input[name="stock"]'
+  );
+}
+
+function getPeriodInput() {
+  return findElement(
+    "#period",
+    "#timePeriod",
+    "#periodSelect",
+    "#range",
+    'select[name="period"]'
+  );
+}
+
+function getSearchButton() {
+  return findElement(
+    "#searchBtn",
+    "#searchButton",
+    "#analyzeBtn",
+    "#analyzeButton",
+    "#loadStock",
+    "#fetchData"
+  );
+}
+
+function getChartCanvas() {
+  return findElement(
+    "#priceChart",
+    "#stockChart",
+    "#chart",
+    "#stockPriceChart",
+    "canvas"
+  );
+}
+
+function getStatusElement() {
+  return findElement("#status", "#errorMessage", "#message", "#loadingMessage");
+}
+
+/* ---------- Status messages ---------- */
+
+function showStatus(message, type = "info") {
+  let element = getStatusElement();
+
+  if (!element) {
+    element = document.createElement("div");
+    element.id = "marketscope-status";
+    element.setAttribute("role", "status");
+
+    const main = findElement("main", ".container", "#app") || document.body;
+    main.prepend(element);
+  }
+
+  element.textContent = message;
+  element.dataset.type = type;
+
+  element.style.padding = "10px 12px";
+  element.style.margin = "12px 0";
+  element.style.borderRadius = "8px";
+  element.style.fontSize = "14px";
+  element.style.display = message ? "block" : "none";
+
+  if (type === "error") {
+    element.style.color = "#b91c1c";
+    element.style.background = "#fee2e2";
+  } else if (type === "success") {
+    element.style.color = "#166534";
+    element.style.background = "#dcfce7";
+  } else {
+    element.style.color = "inherit";
+    element.style.background = "rgba(128,128,128,0.12)";
+  }
+}
+
+function setLoading(loading) {
+  const button = getSearchButton();
+
+  if (button) {
+    if (!button.dataset.originalText) {
+      button.dataset.originalText = button.textContent.trim() || "Analyze";
+    }
+
+    button.disabled = loading;
+    button.textContent = loading
+      ? "Loading..."
+      : button.dataset.originalText;
+  }
+
+  const input = getSearchInput();
+
+  if (input) input.disabled = loading;
+}
+
+/* ---------- API requests ---------- */
+
+async function fetchData(symbol, period = currentPeriod) {
+  const cleanSymbol = String(symbol || "").trim().toUpperCase();
+
+  if (!cleanSymbol) {
+    throw new Error("Enter a stock symbol first.");
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(PERIODS, period)) {
+    throw new Error("Please select a valid historical period.");
+  }
+
+  const url = new URL(`${API_BASE}/api/history`);
+  url.searchParams.set("symbol", cleanSymbol);
+  url.searchParams.set("period", period);
+
+  let response;
+
+  try {
+    response = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        Accept: "application/json"
+      },
+      cache: "no-store"
+    });
+  } catch (error) {
+    throw new Error(
+      "Could not connect to the stock server. Check your internet connection and try again."
+    );
+  }
+
+  let result;
+
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error("The stock server returned an invalid response.");
+  }
+
+  if (!response.ok) {
+    const detail = typeof result.detail === "string"
+      ? result.detail
+      : `HTTP ${response.status}`;
+
+    throw new Error(detail);
+  }
+
+  if (!result || !Array.isArray(result.data)) {
+    throw new Error("The server response did not contain stock history.");
+  }
+
+  const rows = result.data
+    .map((item) => ({
+      date: new Date(item.date),
+      open: Number(item.open),
+      high: Number(item.high),
+      low: Number(item.low),
+      close: Number(item.close),
+      volume: Number(item.volume ?? 0)
+    }))
+    .filter((item) =>
+      !Number.isNaN(item.date.getTime()) &&
+      Number.isFinite(item.close)
+    )
+    .sort((a, b) => a.date - b.date);
+
+  if (rows.length === 0) {
+    throw new Error(
+      `No historical prices were returned for ${cleanSymbol}. Check the symbol and try again.`
+    );
+  }
+
+  return rows;
+}
+
+/* ---------- Stock calculations ---------- */
+
+function calculateStatistics(data) {
+  if (!data.length) return null;
+
+  const latest = data[data.length - 1];
+  const first = data[0];
+
+  const previous = data.length > 1
+    ? data[data.length - 2]
+    : latest;
+
+  const change = latest.close - previous.close;
+
+  const changePercent = previous.close !== 0
+    ? (change / previous.close) * 100
+    : 0;
+
+  const periodChange = latest.close - first.close;
+
+  const periodChangePercent = first.close !== 0
+    ? (periodChange / first.close) * 100
+    : 0;
+
+  const highest = data.reduce(
+    (best, item) => item.high > best.high ? item : best,
+    data[0]
+  );
+
+  const lowest = data.reduce(
+    (best, item) => item.low < best.low ? item : best,
+    data[0]
+  );
+
+  const averageClose =
+    data.reduce((sum, item) => sum + item.close, 0) / data.length;
+
+  return {
+    latest,
+    previous,
+    change,
+    changePercent,
+    periodChange,
+    periodChangePercent,
+    highest,
+    lowest,
+    averageClose
+  };
+}
+
+/* ---------- Summary cards ---------- */
+
+function updateSummary(data) {
+  const stats = calculateStatistics(data);
+  if (!stats) return;
+
+  const changeClass = stats.change >= 0 ? "positive" : "negative";
+
+  const values = {
+    price: formatPrice(stats.latest.close),
+    currentPrice: formatPrice(stats.latest.close),
+    close: formatPrice(stats.latest.close),
+    change: `${stats.change >= 0 ? "+" : ""}${formatPrice(stats.change)}`,
+    changePercent: `${stats.changePercent >= 0 ? "+" : ""}${formatNumber(stats.changePercent)}%`,
+    periodChange: `${stats.periodChange >= 0 ? "+" : ""}${formatPrice(stats.periodChange)}`,
+    periodChangePercent: `${stats.periodChangePercent >= 0 ? "+" : ""}${formatNumber(stats.periodChangePercent)}%`,
+    high: formatPrice(stats.highest.high),
+    low: formatPrice(stats.lowest.low),
+    average: formatPrice(stats.averageClose),
+    volume: formatNumber(stats.latest.volume, 0),
+    date: formatDate(stats.latest.date)
+  };
+
+  const selectors = {
+    price: ["#currentPrice", "#stockPrice", "#latestPrice", "[data-stat='price']"],
+    currentPrice: ["#current-price"],
+    close: ["#closePrice"],
+    change: ["#priceChange", "#change", "[data-stat='change']"],
+    changePercent: ["#changePercent", "#change-percentage", "[data-stat='change-percent']"],
+    periodChange: ["#periodChange"],
+    periodChangePercent: ["#periodChangePercent"],
+    high: ["#dayHigh", "#highPrice", "#highestPrice", "[data-stat='high']"],
+    low: ["#dayLow", "#lowPrice", "#lowestPrice", "[data-stat='low']"],
+    average: ["#averagePrice", "#avgPrice", "[data-stat='average']"],
+    volume: ["#volume", "#tradingVolume", "[data-stat='volume']"],
+    date: ["#lastUpdated", "#latestDate", "[data-stat='date']"]
+  };
+
+  for (const [key, selectorList] of Object.entries(selectors)) {
+    const element = findElement(...selectorList);
+    if (element) {
+      setText(element, values[key]);
+    }
+  }
+
+  const changeElement = findElement(
+    "#priceChange",
+    "#change",
+    "[data-stat='change']"
+  );
+
+  if (changeElement) {
+    changeElement.classList.remove("positive", "negative");
+    changeElement.classList.add(changeClass);
+    changeElement.style.color = stats.change >= 0 ? "#16a34a" : "#dc2626";
+  }
+
+  const percentageElement = findElement(
+    "#changePercent",
+    "#change-percentage",
+    "[data-stat='change-percent']"
+  );
+
+  if (percentageElement) {
+    percentageElement.style.color =
+      stats.changePercent >= 0 ? "#16a34a" : "#dc2626";
+  }
+
+  updateStockHeading(currentSymbol);
+  updateHistoryTable(data);
+}
+
+/* ---------- Stock heading ---------- */
+
+function updateStockHeading(symbol) {
+  const heading = findElement(
+    "#stockName",
+    "#stockTitle",
+    "#selectedStock",
+    "#companyName"
+  );
+
+  if (heading) setText(heading, symbol);
+
+  const subtitle = findElement("#stockSubtitle", "#stockSymbolLabel");
+
+  if (subtitle) {
+    setText(subtitle, `${symbol} · ${PERIODS[currentPeriod] || currentPeriod}`);
+  }
+}
+
+/* ---------- History table ---------- */
+
+function updateHistoryTable(data) {
+  const tbody = findElement(
+    "#historyTable tbody",
+    "#stockTable tbody",
+    "#historicalData tbody",
+    "#historyBody"
+  );
+
+  if (!tbody) return;
+
+  const rows = [...data].reverse();
+
+  tbody.innerHTML = rows.map((item) => `
+    <tr>
+      <td>${escapeHTML(formatDate(item.date))}</td>
+      <td>${escapeHTML(formatPrice(item.open))}</td>
+      <td>${escapeHTML(formatPrice(item.high))}</td>
+      <td>${escapeHTML(formatPrice(item.low))}</td>
+      <td>${escapeHTML(formatPrice(item.close))}</td>
+      <td>${escapeHTML(formatNumber(item.volume, 0))}</td>
+    </tr>
+  `).join("");
+}
+
+/* ---------- Price chart ---------- */
+
+/*
+  Uses Chart.js if it is already loaded by your HTML.
+  Otherwise, draws a simple price line directly on the canvas.
+*/
+
+function drawFallbackChart(canvas, data) {
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  const ratio = window.devicePixelRatio || 1;
+  const width = Math.max(canvas.clientWidth || 600, 300);
+  const height = Math.max(canvas.clientHeight || 320, 220);
+
+  canvas.width = width * ratio;
+  canvas.height = height * ratio;
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+  context.clearRect(0, 0, width, height);
+
+  const padding = { top: 20, right: 20, bottom: 35, left: 65 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+
+  const prices = data.map((item) => item.close);
+  let min = Math.min(...prices);
+  let max = Math.max(...prices);
+
+  if (min === max) {
+    min -= 1;
+    max += 1;
+  }
+
+  const extra = (max - min) * 0.08;
+  min -= extra;
+  max += extra;
+
+  const x = (index) =>
+    padding.left + (index / Math.max(data.length - 1, 1)) * chartWidth;
+
+  const y = (price) =>
+    padding.top + ((max - price) / (max - min)) * chartHeight;
+
+  context.font = "12px sans-serif";
+  context.lineWidth = 1;
+  context.strokeStyle = "rgba(128,128,128,0.2)";
+  context.fillStyle = "rgba(128,128,128,0.9)";
+
+  for (let i = 0; i <= 4; i++) {
+    const price = max - ((max - min) * i) / 4;
+    const lineY = y(price);
+
+    context.beginPath();
+    context.moveTo(padding.left, lineY);
+    context.lineTo(width - padding.right, lineY);
+    context.stroke();
+
+    context.textAlign = "right";
+    context.fillText(formatNumber(price), padding.left - 8, lineY + 4);
+  }
+
+  context.beginPath();
+
+  prices.forEach((price, index) => {
+    if (index === 0) {
+      context.moveTo(x(index), y(price));
+    } else {
+      context.lineTo(x(index), y(price));
+    }
+  });
+
+  context.strokeStyle =
+    prices[prices.length - 1] >= prices[0] ? "#16a34a" : "#dc2626";
+
+  context.lineWidth = 2;
+  context.stroke();
+
+  const lastIndex = prices.length - 1;
+
+  context.beginPath();
+  context.arc(x(lastIndex), y(prices[lastIndex]), 4, 0, Math.PI * 2);
+  context.fillStyle =
+    prices[lastIndex] >= prices[0] ? "#16a34a" : "#dc2626";
+  context.fill();
+
+  context.textAlign = "left";
+  context.fillStyle = "rgba(128,128,128,0.9)";
+  context.fillText(formatDate(data[0].date), padding.left, height - 10);
+
+  context.textAlign = "right";
+  context.fillText(
+    formatDate(data[lastIndex].date),
+    width - padding.right,
+    height - 10
+  );
+}
+
+function renderChart(data) {
+  const canvas = getChartCanvas();
+  if (!canvas || !data.length) return;
+
+  const labels = data.map((item) =>
+    item.date.toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "2-digit"
+    })
+  );
+
+  const prices = data.map((item) => item.close);
+  const rising = prices[prices.length - 1] >= prices[0];
+  const lineColor = rising ? "#16a34a" : "#dc2626";
+
+  if (typeof window.Chart === "function") {
+    if (priceChart) {
+      priceChart.destroy();
+    }
+
+    const context = canvas.getContext("2d");
+
+    priceChart = new window.Chart(context, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          label: `${currentSymbol} closing price`,
+          data: prices,
+          borderColor: lineColor,
+          backgroundColor: rising
+            ? "rgba(22,163,74,0.12)"
+            : "rgba(220,38,38,0.12)",
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          fill: true,
+          tension: 0.15
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          intersect: false,
+          mode: "index"
+        },
+        plugins: {
+          legend: {
+            display: true
+          },
+          tooltip: {
+            callbacks: {
+              label: (item) => formatPrice(item.parsed.y)
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: {
+              maxTicksLimit: 8
+            }
+          },
+          y: {
+            ticks: {
+              callback: (value) => "₹" + Number(value).toLocaleString("en-IN")
+            }
+          }
+        }
+      }
+    });
+
+    return;
+  }
+
+  drawFallbackChart(canvas, data);
+}
+
+/* ---------- Main stock loader ---------- */
+
+async function loadStock(symbol, period) {
+  const cleanSymbol = String(symbol || "").trim().toUpperCase();
+  const selectedPeriod = period || currentPeriod;
+
+  if (!cleanSymbol) {
+    showStatus("Please enter a stock symbol.", "error");
+    return;
+  }
+
+  setLoading(true);
+  showStatus(`Loading ${cleanSymbol} historical prices...`, "info");
+
+  try {
+    const data = await fetchData(cleanSymbol, selectedPeriod);
+
+    stockData = data;
+    currentSymbol = cleanSymbol;
+    currentPeriod = selectedPeriod;
+
+    updateSummary(data);
+    renderChart(data);
+
+    showStatus(
+      `Loaded ${data.length} historical records for ${cleanSymbol}.`,
+      "success"
+    );
+  } catch (error) {
+    console.error("MarketScope stock loading error:", error);
+
+    showStatus(
+      error.message || "Unable to load stock data. Please try again.",
+      "error"
+    );
+  } finally {
+    setLoading(false);
+  }
+}
+
+/* ---------- Form and control events ---------- */
+
+function handleSearch(event) {
+  if (event) event.preventDefault();
+
+  const input = getSearchInput();
+  const periodInput = getPeriodInput();
+
+  const symbol = input ? input.value : currentSymbol;
+  const period = periodInput ? periodInput.value : currentPeriod;
+
+  loadStock(symbol, period);
+}
+
+function setupPeriodOptions() {
+  const select = getPeriodInput();
+  if (!select) return;
+
+  const supportedValues = new Set(
+    Array.from(select.options).map((option) => option.value)
+  );
+
+  if (supportedValues.size === 0) {
+    for (const [value, label] of Object.entries(PERIODS)) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      select.appendChild(option);
+    }
+  }
+
+  if (select.value && PERIODS[select.value]) {
+    currentPeriod = select.value;
+  } else {
+    currentPeriod = "1y";
+    select.value = currentPeriod;
+  }
+}
+
+function setupEvents() {
+  const input = getSearchInput();
+  const button = getSearchButton();
+  const periodInput = getPeriodInput();
+
+  if (input) {
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        handleSearch(event);
+      }
+    });
+  }
+
+  if (button) {
+    button.addEventListener("click", handleSearch);
+  }
+
+  if (periodInput) {
+    periodInput.addEventListener("change", () => {
+      const symbol = input && input.value.trim()
+        ? input.value
+        : currentSymbol;
+
+      loadStock(symbol, periodInput.value);
+    });
+  }
+
+  const form = findElement("#stockForm", "#searchForm", "form");
+
+  if (form) {
+    form.addEventListener("submit", handleSearch);
+  }
+}
+
+/* ---------- Initialization ---------- */
+
+function initializeMarketScope() {
+  setupPeriodOptions();
+  setupEvents();
+
+  const input = getSearchInput();
+  if (input && !input.value.trim()) {
+    input.value = DEFAULT_SYMBOL;
+  }
+
+  const periodInput = getPeriodInput();
+  if (periodInput) {
+    periodInput.value = currentPeriod;
+  }
+
+  loadStock(DEFAULT_SYMBOL, currentPeriod);
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initializeMarketScope);
+} else {
+  initializeMarketScope();
+}
+
+/* ---------- Optional global helpers ---------- */
+
+window.MarketScope = {
+  fetchData,
+  loadStock,
+  calculateStatistics,
+  getStockData: () => [...stockData],
+  getCurrentSymbol: () => currentSymbol,
+  getCurrentPeriod: () => currentPeriod
+};
